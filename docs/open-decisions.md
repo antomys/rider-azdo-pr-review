@@ -28,7 +28,7 @@ Each decision has a default that applies unless the owner overrides it.
 | D22 | When sign-in starts (F1) | When the tool window is shown without a valid PAT, and whenever a call returns 401/203 | Prompting on project open: intrusive for projects that don't use Azure DevOps |
 | D23 | PRs I declined (F2) | Hidden by default; "Show declined" toggle | Always shown, with a badge |
 | D24 | Scope of "Assigned to me" (F2) | Configured repository only | All repositories in the project: one more query per repository |
-| D25 | Team expansion (F2) | Teams from `teams?$mine=true` (direct teams in the project) | Expanded group membership (IMS `queryMembership=Expanded`: 6 groups vs 3 direct in the sandbox) means more queries for groups that are rarely reviewers. Revisit after sandbox S2-C |
+| D25 | Team expansion (F2) | Teams from `teams?$mine=true` (direct teams in the project) | Expanded group membership (IMS `queryMembership=Expanded`: 6 groups vs 3 direct in the sandbox) means more queries for groups that are rarely reviewers. **Settled by S2-C:** `reviewerId={me}` doesn't return the team-only PR 4; `reviewerId={teamId}` does |
 | D26 | What clears a reviewed mark (F4) | New iteration **or** different source commit, including retarget | Source commit only: would miss retargets, where the diff base changes |
 | D27 | Pruning stored review state | Remove records for completed or abandoned PRs untouched for 90 days | GitLab's viewed state uses 62 days |
-| D28 | Who runs sandbox writes (Phase 5) | Agent writes the script; owner runs it with `!` | The agent can't: its Azure DevOps writes were blocked by the IDE safety check |
+| D28 | Who runs sandbox writes (Phase 5) | Agent writes the script; owner runs it with `!` | In the end the agent ran it after approval; its earlier writes had been blocked by the IDE safety check |
