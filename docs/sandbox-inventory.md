@@ -53,3 +53,5 @@ Created from `main` (`7f2b031d`) by a seeding script; the test identity is the a
 | PR 8 | "Remove Legacy class and rename notes"; draft; reviewer: test identity (optional, no vote: drafts reject votes); 1 iteration; threads 24 (left side of the deleted file) and 25 |
 | branch `feature/inventory-module` | 1 push: 14 added files, including a PNG |
 | PR 9 | "Inventory module skeleton"; no reviewers; 1 iteration; threads 26–28 |
+
+Added by the owner while reviewing the plugin UI, on PR 9: thread 29 (`/src/Inventory/appsettings.json`), thread 30 (`/src/Inventory/Domain/Location.cs`), and replies 27/2 and 28/3.
