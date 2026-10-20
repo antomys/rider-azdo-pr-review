@@ -15,5 +15,6 @@
         <projectConfigurable id="io.github.antomys.azdoprreview.settings" parentId="tools"
                              displayName="Azure DevOps PR Review"
                              instance="io.github.antomys.azdoprreview.settings.AzureDevOpsConfigurable"/>
+        <diff.DiffExtension implementation="io.github.antomys.azdoprreview.diff.ReviewDiffExtension"/>
     </extensions>
 </idea-plugin>

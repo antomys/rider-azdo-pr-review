@@ -14,6 +14,7 @@ import io.github.antomys.azdoprreview.review.ReviewSummary
 import io.github.antomys.azdoprreview.review.ReviewTarget
 import io.github.antomys.azdoprreview.settings.AzureDevOpsConfigurable
 import io.github.antomys.azdoprreview.settings.AzureDevOpsConnection
+import io.github.antomys.azdoprreview.settings.ViewedFilesStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -45,7 +46,7 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
             return
         }
         val scope = parent.childScope()
-        val vm = PullRequestDetailsViewModel(scope, target, review)
+        val vm = PullRequestDetailsViewModel(scope, target, review, ViewedFilesStore.getInstance())
         addContent(toolWindow, PullRequestDetailsPanel(project, vm, scope), "#${review.ref.id}", scope, closeable = true)
             .putUserData(REVIEW, review.ref)
         vm.refresh()

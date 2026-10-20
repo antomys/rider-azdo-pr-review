@@ -47,9 +47,12 @@ data class IterationDto(
     val commonRefCommit: CommitRefDto,
 )
 
-/** `path` is null for deleted files; their path is in [ChangeEntryDto.originalPath]. */
+/**
+ * `path` is null for deleted files; their path is in [ChangeEntryDto.originalPath].
+ * `objectId` is the blob in the iteration, `originalObjectId` the blob before it (the only one for deletes).
+ */
 @Serializable
-data class ChangeItemDto(val path: String? = null)
+data class ChangeItemDto(val path: String? = null, val objectId: String? = null, val originalObjectId: String? = null)
 
 @Serializable
 data class ChangeEntryDto(
@@ -117,6 +120,9 @@ data class NewThreadDto(
 
 @Serializable
 data class ThreadStatusUpdateDto(val status: String)
+
+@Serializable
+data class ReviewerVoteDto(val vote: Int)
 
 @Serializable
 data class CommentUpdateDto(val content: String)

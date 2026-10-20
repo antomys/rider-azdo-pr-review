@@ -95,8 +95,9 @@ class LiveSandboxTest {
 
     @Test
     fun `threads of the sample PR`() = runBlocking {
-        val threads = provider.listThreads(ReviewRef(repo, 1))
-        assertEquals(6, threads.size)
-        assertEquals(1, threads.count { it.isSystem })
+        // Threads 1-6 were seeded; UI testing adds more (docs/sandbox-inventory.md), so only those are checked.
+        val threads = provider.listThreads(ReviewRef(repo, 1)).associateBy { it.id }
+        assertTrue(threads.getValue(1).isSystem)
+        assertTrue((2..6).none { threads.getValue(it).isSystem })
     }
 }

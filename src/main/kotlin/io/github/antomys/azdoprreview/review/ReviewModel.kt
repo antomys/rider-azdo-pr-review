@@ -39,8 +39,11 @@ data class Revision(val id: Int, val sourceCommit: String, val targetCommit: Str
 
 enum class ChangeKind { ADDED, MODIFIED, DELETED, RENAMED }
 
-/** [oldPath] is null for added files, [newPath] is null for deleted files. */
-data class FileChange(val oldPath: String?, val newPath: String?, val kind: ChangeKind)
+/**
+ * [oldPath] is null for added files, [newPath] is null for deleted files.
+ * [version] identifies the file's content in this change (a blob id), so "viewed" marks can expire when it changes.
+ */
+data class FileChange(val oldPath: String?, val newPath: String?, val kind: ChangeKind, val version: String? = null)
 
 enum class Side { LEFT, RIGHT }
 
@@ -59,6 +62,8 @@ data class ReviewComment(
     val body: String,
     val created: Instant,
     val isDeleted: Boolean,
+    /** [body] with mentions shown as names, for display only. */
+    val displayBody: String = body,
 )
 
 /**

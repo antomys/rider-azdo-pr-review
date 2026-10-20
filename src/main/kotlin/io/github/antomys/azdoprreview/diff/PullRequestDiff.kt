@@ -15,33 +15,45 @@ import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.UserDataHolder
 import io.github.antomys.azdoprreview.azdo.AzureDevOpsException
 import io.github.antomys.azdoprreview.review.FileChange
-import io.github.antomys.azdoprreview.review.ReviewTarget
-import io.github.antomys.azdoprreview.review.Revision
+import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.Companion.diffSides
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.DiffSide
+import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.State
+import kotlinx.coroutines.CoroutineScope
+
+/** The pull request file a diff shows; [ReviewDiffExtension] uses it to add the file's threads to the viewer. */
+data class ReviewDiffFile(val vm: PullRequestDetailsViewModel, val scope: CoroutineScope, val change: FileChange)
 
 object PullRequestDiff {
-    /** Opens the IDE diff for [changes], starting at [selected]; each file loads when it is shown. */
-    fun show(project: Project, target: ReviewTarget, revision: Revision, changes: List<FileChange>, selected: Int) {
-        val producers = changes.map { FileDiffProducer(project, target, revision, it) }
+    val FILE: Key<ReviewDiffFile> = Key.create("AzureDevOpsPrReview.diffFile")
+
+    /** Opens the IDE diff for the loaded changes, starting at [selected]; each file loads, and is marked viewed, when shown. */
+    fun show(project: Project, vm: PullRequestDetailsViewModel, scope: CoroutineScope, state: State.Loaded, selected: Int) {
+        val producers = state.changes.map { FileDiffProducer(project, ReviewDiffFile(vm, scope, it), state) }
         DiffManager.getInstance().showDiff(project, SimpleDiffRequestChain.fromProducers(producers, selected), DiffDialogHints.DEFAULT)
     }
 }
 
 private class FileDiffProducer(
     private val project: Project,
-    private val target: ReviewTarget,
-    private val revision: Revision,
-    private val change: FileChange,
+    private val file: ReviewDiffFile,
+    private val state: State.Loaded,
 ) : DiffRequestProducer {
+    private val change = file.change
+    private val target = file.vm.target
+
     override fun getName(): String = change.newPath ?: change.oldPath.orEmpty()
 
     override fun process(context: UserDataHolder, indicator: ProgressIndicator): DiffRequest {
-        val (left, right) = diffSides(change, revision)
-        return SimpleDiffRequest(name, content(left), content(right), title(left, "base"), title(right, "iteration ${revision.id}"))
+        val (left, right) = diffSides(change, state.revision)
+        val request = SimpleDiffRequest(name, content(left), content(right), title(left, "base"), title(right, "iteration ${state.revision.id}"))
+        request.putUserData(PullRequestDiff.FILE, file)
+        file.vm.setViewed(change, true)
+        return request
     }
 
     private fun content(side: DiffSide?): DiffContent {

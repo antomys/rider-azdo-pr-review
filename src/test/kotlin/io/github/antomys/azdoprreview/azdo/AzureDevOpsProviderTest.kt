@@ -12,6 +12,7 @@ import io.github.antomys.azdoprreview.review.ReviewState
 import io.github.antomys.azdoprreview.review.Revision
 import io.github.antomys.azdoprreview.review.Side
 import io.github.antomys.azdoprreview.review.ThreadAnchor
+import io.github.antomys.azdoprreview.review.Vote
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -73,10 +74,11 @@ class AzureDevOpsProviderTest {
 
         assertEquals(
             setOf(
-                FileChange("/docs/notes.md", "/docs/NOTES.md", ChangeKind.RENAMED),
-                FileChange("/src/Calculator.cs", "/src/Calculator.cs", ChangeKind.MODIFIED),
-                FileChange(null, "/src/Greeter.cs", ChangeKind.ADDED),
-                FileChange("/src/Legacy.cs", null, ChangeKind.DELETED),
+                FileChange("/docs/notes.md", "/docs/NOTES.md", ChangeKind.RENAMED, "C28CDA24B94E0741E17B182A52745DB344A5704B"),
+                FileChange("/src/Calculator.cs", "/src/Calculator.cs", ChangeKind.MODIFIED, "927A82A1BD0C66CF73D9A2D22AB2EDEB3B586D76"),
+                FileChange(null, "/src/Greeter.cs", ChangeKind.ADDED, "9F382D05433B4212FE3C8776A8B4413114DAEC7B"),
+                // A deleted file's version is the blob it had before the delete.
+                FileChange("/src/Legacy.cs", null, ChangeKind.DELETED, "EBF54586E840B64702D1A4F31D10AD18F5447177"),
             ),
             changes.toSet(),
         )
@@ -97,6 +99,7 @@ class AzureDevOpsProviderTest {
     @Test
     fun `maps every thread position type, statuses, replies and system threads`() = runBlocking {
         server.on("GET", "$prPath/threads", fixture("threads.json"))
+        server.on("GET", "/vssps/_apis/identities", fixture("identities.json"))
         val threads = provider.listThreads(ref).associateBy { it.id }
 
         assertEquals(6, threads.size)
@@ -117,6 +120,37 @@ class AzureDevOpsProviderTest {
         assertEquals(ThreadAnchor("/src/Greeter.cs", null), threads.getValue(5).anchor)
         assertNull(threads.getValue(6).anchor)
         assertFalse(threads.values.any { it.status?.id == "unknown" })
+    }
+
+    @Test
+    fun `tracks thread positions to a revision and shows mentions as names`() = runBlocking {
+        server.on("GET", "$prPath/threads", fixture("threads.json"))
+        server.on("GET", "/vssps/_apis/identities", fixture("identities.json"))
+        val comment = provider.listThreads(ref, revision2).single { it.id == 2 }.comments.first()
+
+        val query = server.requests("GET", "$prPath/threads").single().query.orEmpty()
+        assertTrue("%24iteration=2" in query && "%24baseIteration=0" in query, query)
+        assertTrue("@<$USER_ID>" in comment.body)
+        assertTrue("@Test User" in comment.displayBody, comment.displayBody)
+    }
+
+    @Test
+    fun `still lists threads when mention names can't be looked up`() = runBlocking {
+        server.on("GET", "$prPath/threads", fixture("threads.json"))
+        server.on("GET", "/vssps/_apis/identities", """{"message":"forbidden"}""", status = 403)
+        val comment = provider.listThreads(ref).single { it.id == 2 }.comments.first()
+        assertEquals(comment.body, comment.displayBody)
+    }
+
+    @Test
+    fun `votes as the current user`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/connectionData", fixture("connection-data.json"))
+        server.on("PUT", "$prPath/reviewers/$USER_ID", """{"id":"$USER_ID","vote":5}""")
+        provider.setVote(ref, Vote.APPROVED_WITH_SUGGESTIONS)
+        provider.setVote(ref, Vote.REJECTED)
+
+        val bodies = server.requests("PUT", "$prPath/reviewers/$USER_ID").map { it.body }
+        assertEquals(listOf(5, -10), bodies.map { Json.parseToJsonElement(it).jsonObject.getValue("vote").toString().toInt() })
     }
 
     @Test
