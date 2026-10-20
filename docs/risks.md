@@ -72,9 +72,15 @@ Each risk has a likelihood/impact rating (L/M/H) and a mitigation. Research date
   - IMS `searchFilter=General` matches only exact names, not prefixes.
   - Graph `subjectquery` (preview API) matches prefixes. Its `descriptor` maps through `graph/storagekeys` to the identity `id`, which is the same as `connectionData.authenticatedUser.id`.
   - Relying on preview and undocumented endpoints is itself a risk; fall back to exact-match IMS search if they change.
-- **Still unverified (the sandbox has 0 PRs):**
-  - whether the server renders `@<GUID>` as a display name;
-  - the shapes of system threads.
+- **Verified 2026-10-20 (sandbox PR 1: 2 iterations, 5 threads):**
+  - numeric thread statuses 1–6;
+  - thread positions round-trip unchanged;
+  - mentions are returned as raw `@<GUID>` with no `identities` map;
+  - push events arrive as system threads;
+  - delete changes have a null `item.path`.
+- **Still unverified:**
+  - thread re-tracking (`trackingCriteria`) after a push that moves commented lines;
+  - how the web UI renders mentions (not checked visually).
 - **Status numbers:** only `active=1` is confirmed among the numeric thread statuses.
 - **Viewed state:** no REST API was found for the "viewed" state.
 - **Mitigation:** verify each against the sandbox with read-only calls plus one manual write session (owner-approved) before implementing that feature. Send enum string names.

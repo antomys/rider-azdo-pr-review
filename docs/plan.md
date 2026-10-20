@@ -36,15 +36,15 @@ The bundled GitLab and GitHub plugins share the open-source `platform/collaborat
 | MR list + filters (state, author, reviewer) | `GET …/pullrequests?searchCriteria.status/creatorId/reviewerId` | available | `status` defaults to `active`. Descriptions are truncated to 400 chars in lists. |
 | Quick filters (mine, needs my review) | `creatorId` / `reviewerId` = my id | available | My id comes from `GET {org}/_apis/connectionData` → `authenticatedUser.id` (undocumented, but verified in the sandbox). `profile/me` returned 401 for a token without a profile scope. |
 | Open MR → details | `GET …/pullrequests/{id}` + `/statuses` | available | |
-| Timeline (description, discussions, events) | threads list (system threads included) | partial | System threads (`commentType: system`) stand in for events; there is no dedicated events API. |
+| Timeline (description, discussions, events) | threads list (system threads included) | partial | Verified: a push creates a system thread (first comment `commentType: system`, no `status`, `properties` keys `CodeReviewRefName`, `CodeReviewRefNewCommits`, `CodeReviewRefNewHeadCommit`, …). There is no dedicated events API. |
 | Diff, side-by-side and unified | iterations + iteration changes + Items/Blobs content | partial | The API gives no line hunks, so the IDE diff engine computes them locally from both file versions. |
 | Change tree, "viewed" state | iteration changes | partial | The "viewed" state is kept locally, like the bundled plugins do. No REST API for viewed state was found (**UNVERIFIED**). |
-| Inline comment on a line / range | `POST …/threads` with `threadContext` + `pullRequestThreadContext` | available | Needs `changeTrackingId` and the `iterationContext`. Multi-line works via start/end positions. |
+| Inline comment on a line / range | `POST …/threads` with `threadContext` + `pullRequestThreadContext` | available | Needs `changeTrackingId` and the `iterationContext`. Verified round-trip: right-side single line, right-side range (start/end), left-side line, file-level (`filePath` only), PR-level (no context). |
 | Thread replies | `POST …/threads/{t}/comments` with `parentCommentId` | available | |
-| Resolve / reopen | `PATCH …/threads/{t}` `status` | available | Resolve = `fixed` (also `wontFix`, `closed`, `byDesign`); reopen = `active`. Send the string names. |
+| Resolve / reopen | `PATCH …/threads/{t}` `status` | available | Resolve = `fixed` (also `wontFix`, `closed`, `byDesign`); reopen = `active`. Verified numbers: 1 active, 2 fixed, 3 wontFix, 4 closed, 5 byDesign, 6 pending. Responses always return the names. |
 | Edit / delete comment | `PATCH` / `DELETE …/comments/{c}` | available | Delete is a soft delete (`isDeleted`). |
 | Reactions (emoji) | comment likes | partial | Only a single "like". |
-| @mention autocomplete | Graph `subjectquery` (preview) for typeahead, then `graph/storagekeys/{descriptor}` for the GUID | partial | Verified in the sandbox: IMS `searchFilter=General` matches only exact names, while Graph `subjectquery` matches prefixes. The storage key equals the identity `id`. Encode the mention as `@<GUID>`; how the server renders it is **UNVERIFIED** because the sandbox has no PRs. |
+| @mention autocomplete | Graph `subjectquery` (preview) for typeahead, then `graph/storagekeys/{descriptor}` for the GUID | partial | Verified in the sandbox: IMS `searchFilter=General` matches only exact names, while Graph `subjectquery` matches prefixes. The storage key equals the identity `id`. Encode the mention as `@<GUID>`. Verified: the comment is stored and returned as raw `@<GUID>`, and the thread `identities` map is empty. The plugin must resolve GUIDs itself via IMS `identityIds=` (cached). |
 | Draft notes / batched review | no equivalent; threads publish immediately | not available | Could be emulated with `pending` thread status (**UNVERIFIED** semantics). Out of MVP. |
 | Suggestions (`suggestion` blocks) | no apply API | not available | Render as Markdown only. |
 | Approve / unapprove | `PUT …/reviewers/{me}` `vote` 10/5/0/-5/-10 | available | Richer than GitLab |
@@ -145,7 +145,7 @@ Finding(path, side, startLine, endLine, severity: INFO|WARN|ERROR, title, body: 
 | List PRs | `GET …/pullrequests?searchCriteria.*&$top&$skip` |
 | Get PR | `GET …/pullrequests/{id}` |
 | Iterations | `GET …/pullRequests/{id}/iterations` → `sourceRefCommit`, `targetRefCommit`, `commonRefCommit` |
-| Changes | `GET …/iterations/{n}/changes?$compareTo=&$top(≤2000)&$skip` → `changeTrackingId`, `changeType`, `item.path`, `originalPath`, `objectId` |
+| Changes | `GET …/iterations/{n}/changes?$compareTo=&$top(≤2000)&$skip` → `changeTrackingId`, `changeType`, `item.path`, `originalPath`, `objectId`. Verified: for `delete`, `item.path` is null and the path is only in `originalPath`; `rename` carries both. |
 | File content | `GET …/items?path=&versionDescriptor.version={sha}&versionDescriptor.versionType=commit&includeContent=true` or `GET …/blobs/{objectId}` |
 | Threads | `GET/POST …/pullRequests/{id}/threads[?$iteration&$baseIteration]`, `PATCH …/threads/{t}` |
 | Comments | `GET/POST …/threads/{t}/comments`, `PATCH/DELETE …/comments/{c}` |
@@ -183,6 +183,7 @@ Finding(path, side, startLine, endLine, severity: INFO|WARN|ERROR, title, body: 
 - **No live calls in automated tests.** CI has no `AZDO_PAT`, and any un-stubbed request fails the test.
 - **Recorded HTTP fixtures:**
   - Record JSON responses once, manually, against the sandbox `igorvolokhovych/test-pr-reviewer` using read-only calls.
+  - Source data: sandbox PR 1 (branch `feature/review-sample`) has 2 iterations, an edit, an add, a delete and a rename, plus 5 threads covering every position type, a reply, a mention and a mix of statuses.
   - Before committing, scrub them: remove auth headers, replace identities and emails with placeholders, and keep GUID shapes.
   - Replay them with a local mock HTTP server (e.g. OkHttp MockWebServer or WireMock; tool choice is in open-decisions.md).
   - Write calls (create thread, reply, resolve) are tested by **asserting the request bodies** against expected JSON, not by recording live writes.
