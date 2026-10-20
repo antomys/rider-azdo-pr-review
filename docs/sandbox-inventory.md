@@ -55,3 +55,13 @@ Created from `main` (`7f2b031d`) by a seeding script; the test identity is the a
 | PR 9 | "Inventory module skeleton"; no reviewers; 1 iteration; threads 26–28 |
 
 Added by the owner while reviewing the plugin UI, on PR 9: thread 29 (`/src/Inventory/appsettings.json`), thread 30 (`/src/Inventory/Domain/Location.cs`), and replies 27/2 and 28/3.
+
+## Changed 2026-10-20 (UI test of the reworked pull request tab, PR 7)
+
+| Artifact | Details |
+|---|---|
+| PR 7 thread 31 | Pull request comment with a mention of the test identity, posted from the review box |
+| PR 7 thread 32 | Pull request comment posted with a vote from the review box |
+| PR 7 threads 33–34 | System threads: voted 5; changed to an optional reviewer (the bug this test found: the vote request left out `isRequired`) |
+| PR 7 reviewers | Restored through the API to the seeded state: test identity required, no vote (adds a system thread) |
+| PR 7 thread 14, comment 1 | Text edited through the API, to show the "updated" time |
