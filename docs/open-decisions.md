@@ -8,7 +8,7 @@ Each decision has a default that applies unless the owner overrides it.
 | D2 | Plugin display name | **"Azure DevOps PR Review"** | "AzDO Review". Must differ from the bundled "Azure DevOps". |
 | D3 | Plugin ID / package | `io.github.antomys.azdoprreview` | |
 | D4 | Repository name | `antomys/rider-azdo-pr-review` (private) | |
-| D5 | Target IDE / platform | Rider **2026.2.2** (`RD-262.10315.191`), dependency `riderRD:2026.2.2` | The originally requested `RD-262.8665.400` was not found. |
+| D5 | Target IDE / platform | Build against Rider **2026.2.2** (`RD-262.10315.191`), dependency `riderRD:2026.2.2` | `RD-262.8665.400` is Rider 2026.2.0.2 (release, same `262` branch), so the `262` / `262.*` range covers it. The earlier "not found" was wrong, because only the EAP feed had been queried. Add 2026.2.0.2 to `verifyPlugin` once code work resumes. |
 | D6 | Compatibility range | `sinceBuild=262`, `untilBuild=262.*` | Open-ended `untilBuild`: rejected because of internal API churn (risks.md, R3). The structure check (`verifyPluginStructure`) recommends removing `until-build` for 243+; revisit once the UI's use of collaboration-tools is known. |
 | D7 | Gradle plugin | `org.jetbrains.intellij.platform` **2.19.0** | Bump when a newer release appears. |
 | D8 | JDK toolchain | **25** (platform class-file version 69) | |
@@ -24,3 +24,11 @@ Each decision has a default that applies unless the owner overrides it.
 | D18 | Project license | **Proprietary / all rights reserved while private** | MIT or Apache-2.0 if open-sourced. |
 | D19 | Commit / PR attribution | No AI or tool mentions in history, branch names or PR text (confirmed by owner 2026-10-20) | |
 | D20 | GitLab provider | Interface only in the MVP; no implementation | |
+| D21 | Where reviewed and last-viewed state lives (F3/F4) | **Local, app-level IDE file**, keyed by org/repositoryId/prId/userId | PR properties: shared with every reader of the PR, so not per user. Extension Data Service: per-user, but needs an installed extension, and PAT access is unverified. `isFlagged`/`hasDeclined`: visible in the web UI with other meanings. Cost of local: no sync across machines |
+| D22 | When sign-in starts (F1) | When the tool window is shown without a valid PAT, and whenever a call returns 401/203 | Prompting on project open: intrusive for projects that don't use Azure DevOps |
+| D23 | PRs I declined (F2) | Hidden by default; "Show declined" toggle | Always shown, with a badge |
+| D24 | Scope of "Assigned to me" (F2) | Configured repository only | All repositories in the project: one more query per repository |
+| D25 | Team expansion (F2) | Teams from `teams?$mine=true` (direct teams in the project) | Expanded group membership (IMS `queryMembership=Expanded`: 6 groups vs 3 direct in the sandbox) means more queries for groups that are rarely reviewers. Revisit after sandbox S2-C |
+| D26 | What clears a reviewed mark (F4) | New iteration **or** different source commit, including retarget | Source commit only: would miss retargets, where the diff base changes |
+| D27 | Pruning stored review state | Remove records for completed or abandoned PRs untouched for 90 days | GitLab's viewed state uses 62 days |
+| D28 | Who runs sandbox writes (Phase 5) | Agent writes the script; owner runs it with `!` | The agent can't: its Azure DevOps writes were blocked by the IDE safety check |

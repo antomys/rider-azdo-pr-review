@@ -7,6 +7,8 @@ Status: milestone 1. The core Azure DevOps client and review provider are done; 
 - [Plan and specification](docs/plan.md)
 - [Risks](docs/risks.md)
 - [Open decisions](docs/open-decisions.md)
+- [F1–F5: sign-in, assigned to me, reviewed marking, update detection, update view](docs/features/F1-F5.md)
+- [Sandbox plan](docs/sandbox-plan.md)
 
 ## Build
 

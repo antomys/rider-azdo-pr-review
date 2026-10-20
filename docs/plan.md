@@ -1,6 +1,9 @@
 # Plan: Azure DevOps PR Review plugin for JetBrains Rider
 
-Status: research and specification only. No application code yet.
+Status: specification.
+- **Implemented and merged:** the core Azure DevOps client and provider (milestone 1).
+- **In open PRs:** settings, the PR list, and PR details with diff (milestone 2a/2b).
+- **Specified only:** F1–F5 ([features/F1-F5.md](features/F1-F5.md)) and the sandbox plan ([sandbox-plan.md](sandbox-plan.md)).
 Research date: 2026-10-20. Items marked **UNVERIFIED** were not confirmed against a primary source or a live system.
 
 ## 1. Goal
@@ -53,6 +56,11 @@ The bundled GitLab and GitHub plugins share the open-source `platform/collaborat
 | Create MR | `POST …/pullrequests` | available | Out of MVP (the bundled plugin already does it) |
 | Checkout branch | local git (`sourceRefName`) | available | Out of MVP |
 | AI review (Duo Code Review runs server-side in GitLab) | none built in; our AI adapter posts the results as threads | n/a | Core differentiator |
+| **F1** Sign-in: account selector in the tool window, "Log in again" on 401, tokens in `PasswordSafe` | `connectionData` to validate a PAT; PAT in `PasswordSafe` | available | PAT expiry can't be read with a PAT, so it's detected on use (401/203). See F1 |
+| **F2** Quick filter `AssignedToMe` / `NeedMyReview`. GitLab's list shows no approval state | `searchCriteria.reviewerId` per my id and per team id from `teams?$mine=true`, then de-duplicated; `reviewers[]` with vote in the list response | partial | No group expansion in `reviewerId` (docs). A team GUID is accepted (verified); whether team-only PRs match is unverified (sandbox S2-C) |
+| **F3** none in GitLab or GitHub at MR level; only per-file "viewed" | none server-side per user. PR properties are PR-wide and visible to all; `isFlagged`/`hasDeclined` have other meanings | not available → local | Local app-level store keyed by org/repoId/prId/userId (D21) |
+| **F4** GitLab: per-file viewed state keyed by the SHA of the last commit that changed the file, so it resets on change | iteration ids (+1 per push, force-push, rebase or retarget); `lastMergeSourceCommit` in the list as a cheap signal | available | Compare the stored iteration and source commit, never time. See F4 |
+| **F5** none in either reference plugin | `iterations/{n}/changes?$compareTo={m}` (verified delta); iteration commits are cumulative (verified), so diff the two lists | available | Banner plus a "since last view" diff chain. See F5 |
 
 ## 4. MVP scope
 
@@ -63,8 +71,10 @@ The bundled GitLab and GitHub plugins share the open-source `platform/collaborat
 5. **Inline comments:** gutter "+" on either side creates a thread. Range selection maps to start/end positions.
 6. **Reply to threads:** inline in the diff and in a Threads panel.
 7. **Resolve and reopen:** toggle between `fixed` and `active`. A dropdown offers the other statuses.
-8. **@mention users:** completion in the comment editor via IMS identity search. The comment shows `@Display Name` and posts `@<GUID>`.
+8. **@mention users:** completion in the comment editor via Graph subject query, a prefix search verified in the sandbox. The comment shows `@Display Name` and posts `@<GUID>`.
 9. **AI review:** an action "Review with AI…". It shows a consent dialog that lists exactly which files and diffs will be sent and to which tool. The adapter returns findings. The user previews and selects them, and each selected finding is posted as an `active` thread on its file and line.
+
+10. **F1–F5:** sign-in on first run, the "Assigned to me" view, reviewed marking, update detection and the update view, as specified in [features/F1-F5.md](features/F1-F5.md).
 
 ### Out of scope (MVP)
 
@@ -75,7 +85,8 @@ The bundled GitLab and GitHub plugins share the open-source `platform/collaborat
 - Editor-mode review outside the diff
 - Entra ID OAuth (PAT only first)
 - Azure DevOps Server (on-prem)
-- Notifications and polling
+- Notifications and background polling. Update detection (F4) runs when the list loads or refreshes
+- Syncing reviewed marks across machines (D21)
 - GitLab provider implementation. Only the interface comes in the MVP.
 
 ## 5. Architecture (patterns only)
@@ -89,33 +100,45 @@ Following the bundled GitLab plugin:
 
 ### 5.1 Provider interface (shared by Azure DevOps and a future GitLab provider)
 
-Language-neutral sketch (Kotlin in implementation):
+Implemented in `src/main/kotlin/.../review/ReviewProvider.kt` (merged in #2):
 
 ```
 interface ReviewProvider {
-  val id: ProviderId                                // "azure-devops", "gitlab"
+  val id: String; val capabilities: ProviderCapabilities     // thread statuses, open/resolved status, multiLine, draftReviews
   suspend fun currentUser(): ReviewUser
-  suspend fun listReviews(repo: RepoRef, filter: ReviewFilter, page: Page): Paged<ReviewSummary>
-  suspend fun getReview(ref: ReviewRef): ReviewDetails          // title, desc, branches, reviewers, state
-  suspend fun listRevisions(ref: ReviewRef): List<Revision>     // AzDO iterations / GitLab diff versions
-  suspend fun listChanges(ref: ReviewRef, rev: Revision, base: Revision?): List<FileChange>
-  suspend fun fileContent(repo: RepoRef, path: String, commit: CommitSha): ByteArray?
-  suspend fun listThreads(ref: ReviewRef, rev: Revision?): List<ReviewThread>
-  suspend fun createThread(ref: ReviewRef, anchor: ThreadAnchor?, body: Markdown): ReviewThread
-  suspend fun reply(ref: ReviewRef, thread: ThreadId, body: Markdown, parent: CommentId?): ReviewComment
-  suspend fun editComment(ref: ReviewRef, thread: ThreadId, comment: CommentId, body: Markdown): ReviewComment
-  suspend fun deleteComment(ref: ReviewRef, thread: ThreadId, comment: CommentId)
-  suspend fun setThreadState(ref: ReviewRef, thread: ThreadId, state: ThreadState)
-  suspend fun searchUsers(query: String, limit: Int): List<ReviewUser>
-  fun encodeMention(user: ReviewUser): String                   // AzDO "@<GUID>", GitLab "@username"
-  val capabilities: ProviderCapabilities                        // multiLine, draftReviews, reactions, threadStates…
+  suspend fun listReviews(repo: RepoRef, filter: ReviewFilter, page: Page = Page()): List<ReviewSummary>
+  suspend fun getReview(ref: ReviewRef): ReviewDetails
+  suspend fun listRevisions(ref: ReviewRef): List<Revision>
+  suspend fun listChanges(ref: ReviewRef, revision: Revision): List<FileChange>        // vs merge base
+  suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray?
+  suspend fun listThreads(ref: ReviewRef): List<ReviewThread>
+  suspend fun createThread(ref: ReviewRef, revision: Revision, anchor: ThreadAnchor?, body: String): ReviewThread
+  suspend fun reply(ref, threadId, parentCommentId, body): ReviewComment
+  suspend fun editComment(ref, threadId, commentId, body): ReviewComment
+  suspend fun deleteComment(ref, threadId, commentId)
+  suspend fun setThreadStatus(ref, threadId, status: ThreadStatus): ReviewThread
+  suspend fun searchUsers(query: String, limit: Int = 10): List<ReviewUser>
+  suspend fun resolveUsers(ids: Collection<String>): Map<String, ReviewUser>
+  fun encodeMention(user: ReviewUser): String                                           // AzDO "@<GUID>", GitLab "@username"
+  fun webUrl(ref: ReviewRef): String                                                    // added in #3
 }
-
-ThreadAnchor(path, side: LEFT|RIGHT, startLine, endLine, revisionContext)  // provider maps to its own position model
-ThreadState: OPEN | RESOLVED | plus providerStates (AzDO: wontFix, closed, byDesign, pending)
+ThreadAnchor(path, lines: LineRange(side LEFT|RIGHT, start, end)?)   // null lines = file-level; null anchor = review-level
 ```
 
-The Azure DevOps mapping keeps `changeTrackingId` and the iteration pair inside `revisionContext`. These never leak into the UI.
+Azure DevOps details stay inside the provider: `changeTrackingId` and the iteration pair are looked up from the revision and never reach the UI.
+
+**Additions for F2–F5 (specified, not implemented):**
+
+| Change | For | Azure DevOps mapping |
+|---|---|---|
+| `ReviewFilter.assignedToMe: Boolean` | F2 | Union of `reviewerId` = me and = each `$mine` team id; de-duplicated |
+| `ReviewSummary.reviewers: List<Reviewer>`, `ReviewSummary.sourceCommit: String` | F2, F4 | `reviewers[]` and `lastMergeSourceCommit` from the list response, with no extra calls |
+| `Reviewer.hasDeclined`, `Reviewer.viaTeam: ReviewUser?` | F2 | `hasDeclined`; team entries (`isContainer`), with `votedFor` for my roll-up |
+| `Revision.reasons: Set<RevisionReason>`, `Revision.created: Instant` | F5 | iteration `reason` flags, `createdDate` |
+| `listChanges(ref, revision, since: Revision? = null)` | F5 | `$compareTo={since.id}` |
+| `listRevisionCommits(ref, revision): List<CommitInfo>` | F5 | `iterations/{id}/commits` with `top`/`skip`; cumulative |
+
+The reviewed and last-viewed state (F3/F4) lives in a local `ReviewStateStore`, not in the provider, so every provider shares it.
 
 ### 5.2 AI reviewer adapter
 
@@ -176,7 +199,7 @@ Finding(path, side, startLine, endLine, severity: INFO|WARN|ERROR, title, body: 
 | Compatibility | `sinceBuild=262`, `untilBuild=262.*` (default; see open-decisions.md) | |
 | IntelliJ Platform Gradle Plugin | `org.jetbrains.intellij.platform` **2.19.0** (latest, 2026-09-14) | plugins.gradle.org metadata |
 | JDK toolchain | **25**: platform classes are class-file version 69; bundled JBR 25.0.4 | Inspected `intellij.platform.collaborationTools.jar` |
-| Note | The originally requested EAP build `RD-262.8665.400` was not found in JetBrains' feeds; the closest was 262.8665.68. Target changed to the installed release at the owner's request. | |
+| Also covered | `RD-262.8665.400` is **Rider 2026.2.0.2** (release, 2026-08-03), not an EAP. It's on the same `262` branch, so `sinceBuild=262` covers it. An earlier report said it wasn't found; that was wrong, because only the EAP feed had been queried | JetBrains releases feed (`type=eap,release`), checked 2026-10-20 |
 
 ## 8. Test strategy
 
@@ -185,13 +208,14 @@ Finding(path, side, startLine, endLine, severity: INFO|WARN|ERROR, title, body: 
   - Record JSON responses once, manually, against the sandbox `igorvolokhovych/test-pr-reviewer` using read-only calls.
   - Source data: sandbox PR 1 (branch `feature/review-sample`) has 2 iterations, an edit, an add, a delete and a rename, plus 5 threads covering every position type, a reply, a mention and a mix of statuses.
   - Before committing, scrub them: remove auth headers, replace identities and emails with placeholders, and keep GUID shapes.
-  - Replay them with a local mock HTTP server (e.g. OkHttp MockWebServer or WireMock; tool choice is in open-decisions.md).
+  - Replay them with a local HTTP server built on the JDK's `HttpServer` (`FixtureServer` in tests; D17).
   - Write calls (create thread, reply, resolve) are tested by **asserting the request bodies** against expected JSON, not by recording live writes.
 - **Unit tests:** position mapping (diff line → `threadContext` + `iterationContext`), mention encoding and decoding, thread-state mapping, pagination (`nextSkip`), and rate-limit handling (`Retry-After` on 200 and on 429).
 - **Provider contract tests:** one shared suite runs against the Azure DevOps provider (fixtures) and a fake provider. A future GitLab provider will reuse it.
 - **AI:** only the fake adapter in tests.
   - Claude and Copilot adapters get parser tests on captured sample outputs. No process launch in CI.
   - Sample outputs are produced manually with dummy code only.
-- **UI:** `BasePlatformTestCase` / light fixtures for view models; manual test checklist in Rider for diff inlays.
+- **UI:** view models are Swing-free and unit-tested with a `FakeReviewProvider`; manual checklist in a sandbox IDE (`runIde`).
+- **F1–F5:** the test cases listed per feature in [features/F1-F5.md](features/F1-F5.md). F4's clearing rule is a pure function with table tests. Manual checks follow [sandbox-plan.md](sandbox-plan.md) S1–S4.
 - **Plugin verifier:** `verifyPlugin` against 262 builds. Flag internal API usage.
 - **Manual sandbox testing** (later phase, by the owner): write calls against `test-pr-reviewer` only.

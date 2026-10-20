@@ -89,3 +89,22 @@ Each risk has a likelihood/impact rating (L/M/H) and a mitigation. Research date
 - **Status numbers:** only `active=1` is confirmed among the numeric thread statuses.
 - **Viewed state:** no REST API was found for the "viewed" state.
 - **Mitigation:** verify each against the sandbox with read-only calls plus one manual write session (owner-approved) before implementing that feature. Send enum string names.
+
+## R9. Reviewed state is local — impact M, likelihood M
+- **Issue:** marks and last-viewed iterations (F3/F4) live in one IDE installation. A second machine or a reinstall starts with everything "Needs review".
+- **Mitigation:** key records by org/repositoryId/prId/userId so they survive repo renames and account switches, and document the limitation. Revisit server-side storage if users ask (D21).
+
+## R10. Change detection signals — impact M, likelihood M
+- **`lastMergeSourceCommit` is a proxy.** It reflects the last merge attempt and may lag while `mergeStatus` is `queued` (timing unverified). The authoritative iteration check runs when the details tab opens, so a lag delays the "Updated" badge but can't lose it.
+- **Behaviour still to confirm in sandbox S3:**
+  - whether a target-only advance creates an iteration;
+  - what `$compareTo` returns after a rebase or force-push.
+- **Mitigation:** follow the clearing rule in F4, which never compares times, and record the S3 results in the spec.
+
+## R11. Team assignments — impact M, likelihood M
+- **Issue:** `searchCriteria.reviewerId` doesn't expand groups. F2 queries once per direct team, so a PR assigned to a nested or non-team security group can be missed. Each team adds one request per list refresh, which counts toward the rate limit.
+- **Mitigation:** direct teams only by default (D25). Show "Some team assignments couldn't be loaded" on partial failure.
+
+## R12. PAT lifecycle is opaque — impact M, likelihood H
+- **Issue:** a PAT can't read its own expiry; the lifecycle API needs an Entra token. Expired, revoked and wrong tokens all look the same: 401, or 203 with a sign-in page.
+- **Mitigation:** F1 re-prompts on rejection, keeps the stored token until a new one validates, and recommends short-lived org-scoped tokens. Global PATs stop working on 1 Dec 2026.
