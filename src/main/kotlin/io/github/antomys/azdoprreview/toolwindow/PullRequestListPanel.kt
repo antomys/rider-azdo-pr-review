@@ -1,7 +1,6 @@
 package io.github.antomys.azdoprreview.toolwindow
 
 import com.intellij.icons.AllIcons
-import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -35,6 +34,7 @@ class PullRequestListPanel(
     private val vm: PullRequestListViewModel,
     scope: CoroutineScope,
     private val openSettings: () -> Unit,
+    private val openReview: (ReviewSummary) -> Unit,
 ) : SimpleToolWindowPanel(true, true) {
     private val model = CollectionListModel<ReviewSummary>()
     private val list = JBList(model).apply {
@@ -88,10 +88,8 @@ class PullRequestListPanel(
         scope.launch(Dispatchers.EDT) { vm.state.collect(::render) }
     }
 
-    /** Opens the selected pull request in the browser until the in-IDE details view exists. */
     private fun openSelected(): Boolean {
-        val url = list.selectedValue?.let(vm::webUrl) ?: return false
-        BrowserUtil.browse(url)
+        openReview(list.selectedValue ?: return false)
         return true
     }
 

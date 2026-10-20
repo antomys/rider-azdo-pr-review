@@ -7,6 +7,9 @@ class FakeReviewProvider(
     private val me: ReviewUser = ReviewUser("me", "Me"),
     private val reviews: List<ReviewSummary> = emptyList(),
     private val failure: Exception? = null,
+    private val details: ReviewDetails? = null,
+    private val revisions: List<Revision> = emptyList(),
+    private val changes: Map<Int, List<FileChange>> = emptyMap(),
 ) : ReviewProvider {
     val filters = mutableListOf<ReviewFilter>()
 
@@ -25,9 +28,13 @@ class FakeReviewProvider(
 
     override fun encodeMention(user: ReviewUser) = "@${user.id}"
 
-    override suspend fun getReview(ref: ReviewRef): ReviewDetails = unused()
-    override suspend fun listRevisions(ref: ReviewRef): List<Revision> = unused()
-    override suspend fun listChanges(ref: ReviewRef, revision: Revision): List<FileChange> = unused()
+    override suspend fun getReview(ref: ReviewRef): ReviewDetails {
+        failure?.let { throw it }
+        return details ?: unused()
+    }
+
+    override suspend fun listRevisions(ref: ReviewRef) = revisions
+    override suspend fun listChanges(ref: ReviewRef, revision: Revision) = changes[revision.id].orEmpty()
     override suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray? = unused()
     override suspend fun listThreads(ref: ReviewRef): List<ReviewThread> = unused()
     override suspend fun createThread(ref: ReviewRef, revision: Revision, anchor: ThreadAnchor?, body: String): ReviewThread = unused()
