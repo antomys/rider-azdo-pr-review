@@ -34,7 +34,7 @@ The bundled GitLab and GitHub plugins share the open-source `platform/collaborat
 | GitLab feature (bundled plugin) | Azure DevOps equivalent (REST 7.1) | Status | Implementation note |
 |---|---|---|---|
 | MR list + filters (state, author, reviewer) | `GET …/pullrequests?searchCriteria.status/creatorId/reviewerId` | available | `status` defaults to `active`. Descriptions are truncated to 400 chars in lists. |
-| Quick filters (mine, needs my review) | `creatorId` / `reviewerId` = my id | available | My id comes from `profile/me` or `connectionData` (**UNVERIFIED** which one) |
+| Quick filters (mine, needs my review) | `creatorId` / `reviewerId` = my id | available | My id comes from `GET {org}/_apis/connectionData` → `authenticatedUser.id` (undocumented, but verified in the sandbox). `profile/me` returned 401 for a token without a profile scope. |
 | Open MR → details | `GET …/pullrequests/{id}` + `/statuses` | available | |
 | Timeline (description, discussions, events) | threads list (system threads included) | partial | System threads (`commentType: system`) stand in for events; there is no dedicated events API. |
 | Diff, side-by-side and unified | iterations + iteration changes + Items/Blobs content | partial | The API gives no line hunks, so the IDE diff engine computes them locally from both file versions. |
@@ -44,7 +44,7 @@ The bundled GitLab and GitHub plugins share the open-source `platform/collaborat
 | Resolve / reopen | `PATCH …/threads/{t}` `status` | available | Resolve = `fixed` (also `wontFix`, `closed`, `byDesign`); reopen = `active`. Send the string names. |
 | Edit / delete comment | `PATCH` / `DELETE …/comments/{c}` | available | Delete is a soft delete (`isDeleted`). |
 | Reactions (emoji) | comment likes | partial | Only a single "like". |
-| @mention autocomplete | IMS `identities?searchFilter=General` (GA); Graph subjectquery (preview) | partial | Encode as `@<GUID>`. Which GUID to use, and whether prefix search works, are **UNVERIFIED** and must be checked in the sandbox. |
+| @mention autocomplete | Graph `subjectquery` (preview) for typeahead, then `graph/storagekeys/{descriptor}` for the GUID | partial | Verified in the sandbox: IMS `searchFilter=General` matches only exact names, while Graph `subjectquery` matches prefixes. The storage key equals the identity `id`. Encode the mention as `@<GUID>`; how the server renders it is **UNVERIFIED** because the sandbox has no PRs. |
 | Draft notes / batched review | no equivalent; threads publish immediately | not available | Could be emulated with `pending` thread status (**UNVERIFIED** semantics). Out of MVP. |
 | Suggestions (`suggestion` blocks) | no apply API | not available | Render as Markdown only. |
 | Approve / unapprove | `PUT …/reviewers/{me}` `vote` 10/5/0/-5/-10 | available | Richer than GitLab |
@@ -150,7 +150,9 @@ Finding(path, side, startLine, endLine, severity: INFO|WARN|ERROR, title, body: 
 | Threads | `GET/POST …/pullRequests/{id}/threads[?$iteration&$baseIteration]`, `PATCH …/threads/{t}` |
 | Comments | `GET/POST …/threads/{t}/comments`, `PATCH/DELETE …/comments/{c}` |
 | Reviewers | `GET/POST …/reviewers`, `PUT/PATCH/DELETE …/reviewers/{id}` |
-| Identity search | `GET https://vssps.dev.azure.com/{org}/_apis/identities?searchFilter=General&filterValue=` |
+| Identity search (typeahead) | `POST https://vssps.dev.azure.com/{org}/_apis/graph/subjectquery?api-version=7.1-preview.1` `{"query":"jo","subjectKind":["User"]}` → `descriptor` → `GET …/_apis/graph/storagekeys/{descriptor}` → GUID |
+| Resolve GUIDs to names | `GET https://vssps.dev.azure.com/{org}/_apis/identities?identityIds={guid,…}` (GA) |
+| Current user | `GET https://dev.azure.com/{org}/_apis/connectionData` → `authenticatedUser.id` (undocumented, verified) |
 
 - **Thread position:** `threadContext.filePath` (leading `/`), `rightFileStart/End {line (1-based), offset}` for the new side, and `left…` for the base side. `pullRequestThreadContext.changeTrackingId` and `iterationContext.{first,second}ComparingIteration` are also required.
 - **Thread statuses:** `active`, `fixed`, `wontFix`, `closed`, `byDesign`, `pending`, `unknown`.

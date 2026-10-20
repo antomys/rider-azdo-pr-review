@@ -68,8 +68,13 @@ Each risk has a likelihood/impact rating (L/M/H) and a mitigation. Research date
 - **Watch:** JetBrains may add threads to its plugin, which could make this one redundant. Re-check each Rider release.
 
 ## R8. Unverified API behaviours — impact M, likelihood M
-- **Mention GUID:** the GUID used in `@<GUID>` mentions is probably `IdentityRef.id`.
-- **Identity search:** IMS `searchFilter=General` may not do prefix or typeahead search.
+- **Verified 2026-10-20 (read-only sandbox calls):**
+  - IMS `searchFilter=General` matches only exact names, not prefixes.
+  - Graph `subjectquery` (preview API) matches prefixes. Its `descriptor` maps through `graph/storagekeys` to the identity `id`, which is the same as `connectionData.authenticatedUser.id`.
+  - Relying on preview and undocumented endpoints is itself a risk; fall back to exact-match IMS search if they change.
+- **Still unverified (the sandbox has 0 PRs):**
+  - whether the server renders `@<GUID>` as a display name;
+  - the shapes of system threads.
 - **Status numbers:** only `active=1` is confirmed among the numeric thread statuses.
 - **Viewed state:** no REST API was found for the "viewed" state.
 - **Mitigation:** verify each against the sandbox with read-only calls plus one manual write session (owner-approved) before implementing that feature. Send enum string names.

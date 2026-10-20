@@ -14,13 +14,13 @@ Each decision has a default that applies unless the owner overrides it.
 | D8 | JDK toolchain | **25** (platform class-file version 69) | |
 | D9 | Language | Kotlin with coroutines | Matches the platform's collaboration-tools code. |
 | D10 | Azure DevOps api-version | **7.1** (GA) | 7.2 is preview-only. |
-| D11 | Auth | PAT in `PasswordSafe` | Entra ID OAuth (MSAL) after the MVP. |
-| D12 | Mention search | IMS Identities (GA) | Graph subjectquery (preview) as a fallback if IMS lacks prefix search. Never the undocumented IdentityPicker. |
+| D11 | Auth | PAT in `PasswordSafe`; scopes Code (Read & Write), Identity (Read), Graph (Read) | Entra ID OAuth (MSAL) after the MVP. A token without the profile scope can't call `profile/me`, so use `connectionData`. |
+| D12 | Mention search | **Graph subjectquery (preview) + storagekeys**: the only verified prefix search | IMS Identities (GA) for exact-match fallback and for resolving GUIDs. Never the undocumented IdentityPicker. |
 | D13 | "Resolve" status | `fixed`; reopen = `active` | Dropdown for `wontFix`, `closed`, `byDesign`. |
 | D14 | First AI adapter | **Claude Code CLI** (installed, flags verified) | Copilot CLI second. It isn't installed here and its flags are unverified. |
 | D15 | AI output posting | Preview, then the user picks which findings to post | Auto-post: rejected (risks.md, R5). |
 | D16 | HTTP client | Platform `HttpClient` / `HttpRequests` with kotlinx.serialization | Ktor or OkHttp: an extra dependency. |
 | D17 | Test HTTP replay | OkHttp MockWebServer (test-only dependency) | WireMock: heavier. |
 | D18 | Project license | **Proprietary / all rights reserved while private** | MIT or Apache-2.0 if open-sourced. |
-| D19 | Commit / PR attribution | No AI or tool mentions in history, branch names or PR text | Owner to confirm the repo convention. |
+| D19 | Commit / PR attribution | No AI or tool mentions in history, branch names or PR text (confirmed by owner 2026-10-20) | |
 | D20 | GitLab provider | Interface only in the MVP; no implementation | |
