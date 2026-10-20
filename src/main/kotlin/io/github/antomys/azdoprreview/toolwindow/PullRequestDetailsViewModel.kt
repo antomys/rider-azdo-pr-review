@@ -51,6 +51,16 @@ class PullRequestDetailsViewModel(
     /** Path to the version marked as viewed; compare with [isViewed]. */
     val viewed: StateFlow<Map<String, String>> = _viewed.asStateFlow()
 
+    private val _shownFile = MutableStateFlow<FileChange?>(null)
+
+    /** The file the review's diff shows, if it's open. */
+    val shownFile: StateFlow<FileChange?> = _shownFile.asStateFlow()
+
+    private val _pendingNavigation = MutableStateFlow<ReviewThread?>(null)
+
+    /** A thread the diff should scroll to once it shows the thread's file; see [navigateTo]. */
+    val pendingNavigation: StateFlow<ReviewThread?> = _pendingNavigation.asStateFlow()
+
     private var loading: Job? = null
 
     fun refresh(): Job {
@@ -76,6 +86,66 @@ class PullRequestDetailsViewModel(
         viewedFiles.setViewed(reviewKey, change.path, if (isViewed) change.version.orEmpty() else null)
         _viewed.value = viewedFiles.viewed(reviewKey)
     }
+
+    /** Called when the diff shows [change]: showing a file marks it viewed. */
+    fun onDiffShown(change: FileChange) {
+        setViewed(change, true)
+        _shownFile.value = change
+    }
+
+    /** The changed file a file thread is on, if it's in the loaded changes. */
+    fun changeOf(thread: ReviewThread): FileChange? {
+        val path = thread.anchor?.path ?: return null
+        return (state.value as? State.Loaded)?.changes?.firstOrNull { it.newPath == path || it.oldPath == path }
+    }
+
+    /** Asks the diff to scroll to [thread]; the diff calls [navigated] when it has. */
+    fun navigateTo(thread: ReviewThread) {
+        _pendingNavigation.value = thread
+    }
+
+    fun navigated(thread: ReviewThread) {
+        _pendingNavigation.compareAndSet(thread, null)
+    }
+
+    /** Approve, or approve with suggestions while threads the user started are still open. */
+    fun suggestedVote(): Vote {
+        val me = (state.value as? State.Loaded)?.me ?: return Vote.APPROVED
+        val openOwnThreads = threads.value.any { !it.isSystem && it.status != null && !it.isResolved && it.comments.firstOrNull()?.author?.id == me.id }
+        return if (openOwnThreads) Vote.APPROVED_WITH_SUGGESTIONS else Vote.APPROVED
+    }
+
+    /** The user's vote, or [Vote.NONE] if they aren't a reviewer. */
+    fun myVote(): Vote {
+        val loaded = state.value as? State.Loaded ?: return Vote.NONE
+        return loaded.details.reviewers.firstOrNull { it.user.id == loaded.me.id }?.vote ?: Vote.NONE
+    }
+
+    /** Posts [comment] as a pull request comment when it isn't blank, then votes. */
+    suspend fun submitReview(vote: Vote, comment: String) {
+        if (comment.isNotBlank()) createThread(null, comment)
+        vote(vote)
+    }
+
+    /** People to mention: the review's participants that match [query] first, then the provider's search results. */
+    suspend fun searchUsers(query: String): List<ReviewUser> {
+        val loaded = state.value as? State.Loaded
+        val participants = listOfNotNull(loaded?.details?.summary?.author, loaded?.me) +
+            loaded?.details?.reviewers?.map { it.user }.orEmpty() +
+            threads.value.filterNot { it.isSystem }.flatMap { t -> t.comments.map { it.author } }
+        val local = participants.filter { it.matches(query) }
+        // A failed search still leaves the participants to choose from.
+        val remote = try {
+            target.provider.searchUsers(target.repo, query, MAX_MENTION_RESULTS)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+        return (local + remote).distinctBy { it.id }.take(MAX_MENTION_RESULTS)
+    }
+
+    fun encodeMention(user: ReviewUser): String = target.provider.encodeMention(user)
 
     /** The first unviewed file after [current] in tree order, wrapping around; null when every file is viewed. */
     fun nextUnviewed(current: FileChange?): FileChange? {
@@ -123,6 +193,19 @@ class PullRequestDetailsViewModel(
     }
 
     companion object {
+        private const val MAX_MENTION_RESULTS = 20
+
+        /**
+         * Discussion threads (no system threads) in the order they were started; only [file]'s threads when given,
+         * and resolved threads only when [showResolved].
+         */
+        fun discussion(threads: List<ReviewThread>, file: FileChange?, showResolved: Boolean): List<ReviewThread> =
+            threads
+                .filter { !it.isSystem && it.comments.any { c -> !c.isDeleted } }
+                .filter { showResolved || !it.isResolved }
+                .filter { file == null || it.anchor?.path.let { p -> p != null && (p == file.newPath || p == file.oldPath) } }
+                .sortedBy { it.created }
+
         /** Left: the file at the merge base; right: the file in the revision. Null for a side where it doesn't exist. */
         fun diffSides(change: FileChange, revision: Revision): Pair<DiffSide?, DiffSide?> =
             change.oldPath?.let { DiffSide(it, revision.baseCommit) } to change.newPath?.let { DiffSide(it, revision.sourceCommit) }

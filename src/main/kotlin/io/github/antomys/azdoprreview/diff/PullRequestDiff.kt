@@ -1,14 +1,18 @@
 package io.github.antomys.azdoprreview.diff
 
 import com.intellij.diff.DiffContentFactory
-import com.intellij.diff.DiffDialogHints
-import com.intellij.diff.DiffManager
+import com.intellij.diff.chains.DiffRequestChain
 import com.intellij.diff.chains.DiffRequestProducer
 import com.intellij.diff.chains.DiffRequestProducerException
 import com.intellij.diff.chains.SimpleDiffRequestChain
 import com.intellij.diff.contents.DiffContent
+import com.intellij.diff.editor.ChainDiffVirtualFile
+import com.intellij.diff.editor.DiffEditorTabFilesManager
+import com.intellij.diff.impl.CacheDiffRequestChainProcessor
+import com.intellij.diff.impl.DiffRequestProcessor
 import com.intellij.diff.requests.DiffRequest
 import com.intellij.diff.requests.SimpleDiffRequest
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.fileTypes.UnknownFileType
@@ -26,16 +30,46 @@ import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.Sta
 import kotlinx.coroutines.CoroutineScope
 
 /** The pull request file a diff shows; [ReviewDiffExtension] uses it to add the file's threads to the viewer. */
-data class ReviewDiffFile(val vm: PullRequestDetailsViewModel, val scope: CoroutineScope, val change: FileChange)
+data class ReviewDiffFile(val project: Project, val vm: PullRequestDetailsViewModel, val scope: CoroutineScope, val change: FileChange)
 
 object PullRequestDiff {
     val FILE: Key<ReviewDiffFile> = Key.create("AzureDevOpsPrReview.diffFile")
+}
 
-    /** Opens the IDE diff for the loaded changes, starting at [selected]; each file loads, and is marked viewed, when shown. */
-    fun show(project: Project, vm: PullRequestDetailsViewModel, scope: CoroutineScope, state: State.Loaded, selected: Int) {
-        val producers = state.changes.map { FileDiffProducer(project, ReviewDiffFile(vm, scope, it), state) }
-        DiffManager.getInstance().showDiff(project, SimpleDiffRequestChain.fromProducers(producers, selected), DiffDialogHints.DEFAULT)
+/**
+ * The pull request's diff, in one editor tab: showing another file switches that tab to it.
+ * Each file loads, and is marked viewed, when shown.
+ */
+class ReviewDiff(private val project: Project, private val vm: PullRequestDetailsViewModel, private val scope: CoroutineScope) {
+    private var file: ReviewDiffVirtualFile? = null
+
+    fun show(change: FileChange, focus: Boolean) {
+        val state = vm.state.value as? State.Loaded ?: return
+        val index = state.changes.indexOf(change).takeIf { it >= 0 } ?: return
+        val tabs = DiffEditorTabFilesManager.getInstance(project)
+        val editors = FileEditorManager.getInstance(project)
+        val current = file
+        val processor = current?.processor
+        if (current != null && current.state == state && processor != null && editors.isFileOpen(current)) {
+            processor.setCurrentRequest(index)
+            tabs.showDiffFile(current, focus)
+            return
+        }
+        // A refresh can change the file list, so a stale tab is replaced rather than reused.
+        current?.let(editors::closeFile)
+        val producers = state.changes.map { FileDiffProducer(project, ReviewDiffFile(project, vm, scope, it), state) }
+        val name = "PR #${vm.summary.ref.id}: ${vm.summary.title}"
+        file = ReviewDiffVirtualFile(SimpleDiffRequestChain.fromProducers(producers, index), name, state).also { tabs.showDiffFile(it, focus) }
     }
+}
+
+/** Keeps the processor it creates, so the open tab can be switched to another file. */
+private class ReviewDiffVirtualFile(chain: DiffRequestChain, name: String, val state: State.Loaded) : ChainDiffVirtualFile(chain, name) {
+    var processor: CacheDiffRequestChainProcessor? = null
+        private set
+
+    override fun createProcessor(project: Project): DiffRequestProcessor =
+        CacheDiffRequestChainProcessor(project, chain).also { processor = it }
 }
 
 private class FileDiffProducer(
@@ -52,7 +86,6 @@ private class FileDiffProducer(
         val (left, right) = diffSides(change, state.revision)
         val request = SimpleDiffRequest(name, content(left), content(right), title(left, "base"), title(right, "iteration ${state.revision.id}"))
         request.putUserData(PullRequestDiff.FILE, file)
-        file.vm.setViewed(change, true)
         return request
     }
 

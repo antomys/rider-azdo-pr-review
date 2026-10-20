@@ -4,6 +4,8 @@ import com.intellij.diff.DiffContext
 import com.intellij.diff.DiffExtension
 import com.intellij.diff.FrameDiffTool
 import com.intellij.diff.requests.DiffRequest
+import com.intellij.diff.tools.util.base.DiffViewerBase
+import com.intellij.diff.tools.util.base.DiffViewerListener
 import com.intellij.diff.tools.util.side.OnesideTextDiffViewer
 import com.intellij.diff.tools.util.side.TwosideTextDiffViewer
 import com.intellij.icons.AllIcons
@@ -11,6 +13,8 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.Inlay
+import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.event.EditorMouseListener
 import com.intellij.openapi.editor.event.EditorMouseMotionListener
@@ -30,6 +34,7 @@ import io.github.antomys.azdoprreview.review.ReviewThread
 import io.github.antomys.azdoprreview.review.Side
 import io.github.antomys.azdoprreview.review.ThreadAnchor
 import io.github.antomys.azdoprreview.ui.CommentEditor
+import io.github.antomys.azdoprreview.ui.Mentions
 import io.github.antomys.azdoprreview.ui.ThreadPanel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,6 +52,8 @@ import com.intellij.diff.util.Side as EditorSide
 class ReviewDiffExtension : DiffExtension() {
     override fun onViewerCreated(viewer: FrameDiffTool.DiffViewer, context: DiffContext, request: DiffRequest) {
         val file = request.getUserData(PullRequestDiff.FILE) ?: return
+        // Viewers are created for cached requests too, so this follows every switch between files.
+        file.vm.onDiffShown(file.change)
         val editors: (EditorSide) -> EditorEx? = when (viewer) {
             is TwosideTextDiffViewer -> viewer::getEditor
             is OnesideTextDiffViewer -> { side -> viewer.editor.takeIf { side == viewer.side } }
@@ -64,13 +71,40 @@ private class DiffThreads(
     private val change = file.change
     private val threadInlays = mutableListOf<Inlay<*>>()
 
+    /** True once the viewer has computed the diff and done its own initial scrolling. */
+    private var ready = false
+
     fun install() {
-        val job = file.scope.launch(Dispatchers.EDT) { file.vm.threads.collect(::render) }
+        val jobs = listOf(
+            file.scope.launch(Dispatchers.EDT) { file.vm.threads.collect(::render) },
+            file.scope.launch(Dispatchers.EDT) { file.vm.pendingNavigation.collect { if (ready) scrollToPending() } },
+        )
+        (viewer as? DiffViewerBase)?.addListener(object : DiffViewerListener() {
+            override fun onAfterRediff() {
+                if (ready) return
+                ready = true
+                SwingUtilities.invokeLater(::scrollToPending)
+            }
+        }) ?: run { ready = true }
         Disposer.register(viewer) {
-            job.cancel()
+            jobs.forEach { it.cancel() }
             threadInlays.forEach(Disposer::dispose)
         }
         Side.entries.forEach { side -> editor(side)?.let { installGutter(side, it) } }
+    }
+
+    private fun isOnThisFile(thread: ReviewThread) = thread.anchor?.path?.let { it == change.newPath || it == change.oldPath } == true
+
+    private fun sideOf(thread: ReviewThread) = thread.anchor?.lines?.side ?: if (change.newPath != null) Side.RIGHT else Side.LEFT
+
+    /** Scrolls to the thread the user asked to see, if it's on this file. */
+    private fun scrollToPending() {
+        val thread = file.vm.pendingNavigation.value?.takeIf(::isOnThisFile) ?: return
+        val editor = editor(sideOf(thread)) ?: return
+        val line = ((thread.anchor?.lines?.start ?: 1) - 1).coerceIn(0, maxOf(editor.document.lineCount - 1, 0))
+        editor.caretModel.moveToLogicalPosition(LogicalPosition(line, 0))
+        editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
+        file.vm.navigated(thread)
     }
 
     private fun path(side: Side) = if (side == Side.LEFT) change.oldPath else change.newPath
@@ -81,11 +115,10 @@ private class DiffThreads(
     private fun render(threads: List<ReviewThread>) {
         threadInlays.forEach(Disposer::dispose)
         threadInlays.clear()
-        threads.filter { !it.isSystem && it.anchor?.path?.let { p -> p == change.newPath || p == change.oldPath } == true }.forEach { thread ->
+        threads.filter { !it.isSystem && isOnThisFile(it) }.forEach { thread ->
             val lines = thread.anchor!!.lines
-            val side = lines?.side ?: if (change.newPath != null) Side.RIGHT else Side.LEFT
-            val editor = editor(side) ?: return@forEach
-            val panel = ThreadPanel(thread, file.vm, file.scope, UIUtil.getPanelBackground())
+            val editor = editor(sideOf(thread)) ?: return@forEach
+            val panel = ThreadPanel(file.project, thread, file.vm, file.scope, UIUtil.getPanelBackground())
             threadInlays += addInlay(editor, panel, lines?.end, above = lines == null)
         }
     }
@@ -140,7 +173,9 @@ private class DiffThreads(
         }
         var inlay: Inlay<*>? = null
         val draft = CommentEditor(
-            file.scope, "Comment", "Comment on ${if (start == end) "line ${end + 1}" else "lines ${start + 1}–${end + 1}"}…",
+            file.project, file.scope, "Comment",
+            "Comment on ${if (start == end) "line ${end + 1}" else "lines ${start + 1}–${end + 1}"}… (@ to mention)",
+            Mentions(file.vm::searchUsers, file.vm::encodeMention),
             submit = { body ->
                 file.vm.createThread(ThreadAnchor(path, LineRange(side, start + 1, end + 1)), body)
                 inlay?.let(Disposer::dispose)

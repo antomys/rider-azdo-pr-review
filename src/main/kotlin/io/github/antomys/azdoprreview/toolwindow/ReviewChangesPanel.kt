@@ -10,7 +10,6 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.DumbAwareAction
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vcs.FileStatus
 import com.intellij.ui.CheckboxTree
@@ -22,7 +21,7 @@ import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.tree.TreeUtil
-import io.github.antomys.azdoprreview.diff.PullRequestDiff
+import io.github.antomys.azdoprreview.diff.ReviewDiff
 import io.github.antomys.azdoprreview.review.ChangeKind
 import io.github.antomys.azdoprreview.review.FileChange
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.State
@@ -33,23 +32,31 @@ import kotlinx.coroutines.launch
 import java.awt.BorderLayout
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.JPanel
 import javax.swing.JTree
+import javax.swing.SwingUtilities
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
 
-/** The changed files as a directory tree; each file's checkbox is its "viewed" mark. */
+/**
+ * The changed files as a directory tree; each file's checkbox is its "viewed" mark.
+ * Clicking a file shows it in the review's diff; the selection follows the file the diff shows.
+ */
 class ReviewChangesPanel(
-    private val project: Project,
     private val vm: PullRequestDetailsViewModel,
     private val scope: CoroutineScope,
+    private val diff: ReviewDiff,
 ) : SimpleToolWindowPanel(true, true) {
     private val root = CheckedTreeNode("root")
+    private val renderer = Renderer()
+
     /** A folder's checkbox sets all its files; it shows as checked only when every file is. */
-    private val tree = object : CheckboxTree(Renderer(), root, CheckboxTreeBase.CheckPolicy(true, true, false, true)) {
+    private val tree = object : CheckboxTree(renderer, root, CheckboxTreeBase.CheckPolicy(true, true, false, true)) {
         // The checkbox tree consumes double-clicks itself and reports them here.
         override fun onDoubleClick(node: CheckedTreeNode?) {
-            openDiff(node?.userObject as? FileChange)
+            openDiff(node?.userObject as? FileChange, focus = true)
         }
     }
     private val title = JBLabel().apply { border = JBUI.Borders.empty(0, 8) }
@@ -71,7 +78,17 @@ class ReviewChangesPanel(
         })
         tree.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
-                if (e.keyCode == KeyEvent.VK_ENTER && openDiff(selectedChange())) e.consume()
+                if (e.keyCode == KeyEvent.VK_ENTER && openDiff(selectedChange(), focus = true)) e.consume()
+            }
+        })
+        tree.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount != 1 || !SwingUtilities.isLeftMouseButton(e)) return
+                val path = tree.getPathForLocation(e.x, e.y) ?: return
+                val bounds = tree.getPathBounds(path) ?: return
+                // A click on the checkbox only changes the viewed mark.
+                if (e.x - bounds.x <= renderer.threeStateCheckBox.preferredSize.width) return
+                openDiff((path.lastPathComponent as? CheckedTreeNode)?.userObject as? FileChange, focus = false)
             }
         })
 
@@ -79,7 +96,7 @@ class ReviewChangesPanel(
         val actions = DefaultActionGroup(
             object : DumbAwareAction("Next Unviewed File", "Open the next file you haven't viewed", AllIcons.Actions.Forward) {
                 override fun actionPerformed(e: AnActionEvent) {
-                    vm.nextUnviewed(selectedChange())?.let { select(it); openDiff(it) }
+                    vm.nextUnviewed(selectedChange())?.let { select(it); openDiff(it, focus = false) }
                 }
 
                 override fun update(e: AnActionEvent) {
@@ -101,6 +118,7 @@ class ReviewChangesPanel(
 
         scope.launch(Dispatchers.EDT) { vm.state.collect(::render) }
         scope.launch(Dispatchers.EDT) { vm.viewed.collect { syncViewedMarks() } }
+        scope.launch(Dispatchers.EDT) { vm.shownFile.collect { shown -> if (shown != null && shown != selectedChange()) select(shown) } }
         scope.launch(Dispatchers.EDT) {
             vm.threads.collect { threads ->
                 comments = threads.filter { !it.isSystem }.mapNotNull { it.anchor?.path }.groupingBy { it }.eachCount()
@@ -159,10 +177,9 @@ class ReviewChangesPanel(
         TreeUtil.selectPath(tree, TreePath(node.path))
     }
 
-    private fun openDiff(change: FileChange?): Boolean {
-        val state = vm.state.value as? State.Loaded ?: return false
+    private fun openDiff(change: FileChange?, focus: Boolean): Boolean {
         if (change == null) return false
-        PullRequestDiff.show(project, vm, scope, state, state.changes.indexOf(change))
+        diff.show(change, focus)
         return true
     }
 

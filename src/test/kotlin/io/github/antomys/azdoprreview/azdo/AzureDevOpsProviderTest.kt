@@ -143,14 +143,20 @@ class AzureDevOpsProviderTest {
     }
 
     @Test
-    fun `votes as the current user`() = runBlocking {
+    fun `votes as the current user, keeping a required reviewer required`() = runBlocking {
         server.on("GET", "/fabrikam/_apis/connectionData", fixture("connection-data.json"))
+        val pr = Json.parseToJsonElement(fixture("pull-request.json")).jsonObject
+        val asRequired = kotlinx.serialization.json.JsonObject(
+            pr + ("reviewers" to Json.parseToJsonElement("""[{"id":"$USER_ID","vote":0,"isRequired":true}]""")),
+        )
+        server.on("GET", prPath, Reply(200, pr.toString().toByteArray()), Reply(200, asRequired.toString().toByteArray()))
         server.on("PUT", "$prPath/reviewers/$USER_ID", """{"id":"$USER_ID","vote":5}""")
         provider.setVote(ref, Vote.APPROVED_WITH_SUGGESTIONS)
         provider.setVote(ref, Vote.REJECTED)
 
         val bodies = server.requests("PUT", "$prPath/reviewers/$USER_ID").map { it.body }
-        assertEquals(listOf(5, -10), bodies.map { Json.parseToJsonElement(it).jsonObject.getValue("vote").toString().toInt() })
+        assertJson("""{"vote":5,"isRequired":false}""", bodies[0])
+        assertJson("""{"vote":-10,"isRequired":true}""", bodies[1])
     }
 
     @Test
@@ -221,17 +227,51 @@ class AzureDevOpsProviderTest {
     }
 
     @Test
-    fun `searches users by prefix and maps them to identity ids for mentions`() = runBlocking {
+    fun `searches team members by any name word and the graph by prefix, without duplicates`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams", fixture("teams.json"))
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams/44444444-4444-4444-4444-444444444444/members", fixture("team-members.json"))
         server.on("POST", "/vssps/_apis/graph/subjectquery", fixture("subject-query.json"))
         server.on("GET", "/vssps/_apis/graph/storagekeys/aad.dGVzdC11c2Vy", fixture("storage-key.json"))
-        val user = provider.searchUsers("Tes").single()
 
+        // "user" starts the second word of "Test User": only team members match it that way.
+        val user = provider.searchUsers(repo, "user").single()
         assertEquals(USER_ID, user.id)
-        assertEquals("Test User", user.displayName)
         assertEquals("test.user@example.com", user.uniqueName)
         assertEquals("@<$USER_ID>", provider.encodeMention(user))
-        assertJson("""{"query":"Tes","subjectKind":["User"]}""", server.requests.first().body)
-        assertTrue(server.requests.all { "api-version=7.1-preview.1" in it.query.orEmpty() })
+        assertJson("""{"query":"user","subjectKind":["User"]}""", server.requests("POST", "/vssps/_apis/graph/subjectquery").single().body)
+        assertTrue(server.requests("GET", "/vssps/_apis/graph/storagekeys/aad.dGVzdC11c2Vy").all { "api-version=7.1-preview.1" in it.query.orEmpty() })
+
+        assertEquals(listOf("Test User", "Other Person"), provider.searchUsers(repo, "").map { it.displayName })
+        assertEquals(1, server.requests("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams").size)
+    }
+
+    @Test
+    fun `treats a null graph result as no matches`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams", fixture("teams.json"))
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams/44444444-4444-4444-4444-444444444444/members", fixture("team-members.json"))
+        server.on("POST", "/vssps/_apis/graph/subjectquery", """{"count":0,"value":null}""")
+        assertEquals(listOf("Other Person"), provider.searchUsers(repo, "pe").map { it.displayName })
+    }
+
+    @Test
+    fun `still searches the graph when team members can't be listed`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams", """{"message":"denied"}""", status = 403)
+        server.on("POST", "/vssps/_apis/graph/subjectquery", fixture("subject-query.json"))
+        server.on("GET", "/vssps/_apis/graph/storagekeys/aad.dGVzdC11c2Vy", fixture("storage-key.json"))
+        assertEquals(listOf(USER_ID), provider.searchUsers(repo, "Tes").map { it.id })
+    }
+
+    @Test
+    fun `reports a comment's edit time only when its text changed after publishing`() = runBlocking {
+        val edited = thread(2).replace(
+            """"lastContentUpdatedDate":"2026-10-20T14:13:45.653Z"""", """"lastContentUpdatedDate":"2026-10-20T14:20:00Z"""",
+        )
+        server.on("GET", "$prPath/threads", """{"value":[$edited],"count":1}""")
+        server.on("GET", "/vssps/_apis/identities", fixture("identities.json"))
+        val comments = provider.listThreads(ref).single().comments
+
+        assertNull(comments[0].updated)
+        assertEquals(java.time.Instant.parse("2026-10-20T14:20:00Z"), comments[1].updated)
     }
 
     @Test

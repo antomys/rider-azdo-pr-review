@@ -47,7 +47,9 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
         }
         val scope = parent.childScope()
         val vm = PullRequestDetailsViewModel(scope, target, review, ViewedFilesStore.getInstance())
-        addContent(toolWindow, PullRequestDetailsPanel(project, vm, scope), "#${review.ref.id}", scope, closeable = true)
+        val list = contents.getContent(0)!!
+        val panel = PullRequestDetailsPanel(project, vm, scope, onBack = { contents.setSelectedContent(list) })
+        addContent(toolWindow, panel, "#${review.ref.id}", scope, closeable = true)
             .putUserData(REVIEW, review.ref)
         vm.refresh()
     }

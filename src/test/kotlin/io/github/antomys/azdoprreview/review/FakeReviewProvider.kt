@@ -11,6 +11,8 @@ class FakeReviewProvider(
     private val revisions: List<Revision> = emptyList(),
     private val changes: Map<Int, List<FileChange>> = emptyMap(),
     var threads: List<ReviewThread> = emptyList(),
+    private val users: List<ReviewUser> = emptyList(),
+    private val searchFailure: Exception? = null,
 ) : ReviewProvider {
     val filters = mutableListOf<ReviewFilter>()
     val votes = mutableListOf<Vote>()
@@ -52,7 +54,8 @@ class FakeReviewProvider(
         votes += vote
     }
 
-    override suspend fun searchUsers(query: String, limit: Int): List<ReviewUser> = unused()
+    override suspend fun searchUsers(repo: RepoRef, query: String, limit: Int): List<ReviewUser> =
+        searchFailure?.let { throw it } ?: users.filter { it.matches(query) }.take(limit)
     override suspend fun resolveUsers(ids: Collection<String>): Map<String, ReviewUser> = unused()
 
     private fun unused(): Nothing = error("not used by this test")

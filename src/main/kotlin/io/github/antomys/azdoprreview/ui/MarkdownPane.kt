@@ -5,14 +5,17 @@ import com.intellij.ui.BrowserHyperlinkListener
 import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
+import java.awt.Color
 import java.awt.Dimension
 import javax.swing.JEditorPane
 import javax.swing.SwingUtilities
+import javax.swing.text.DefaultCaret
 import javax.swing.text.View
 
-/** Read-only Markdown text that wraps to the width its container gives it. */
-class MarkdownPane(markdown: String) : JEditorPane() {
+/** Read-only Markdown text that wraps to the width its container gives it; [color] overrides the text color. */
+class MarkdownPane(markdown: String, color: Color? = null) : JEditorPane() {
     init {
+        color?.let { foreground = it }
         editorKit = HTMLEditorKitBuilder().withWordWrapViewFactory().build()
         isEditable = false
         isOpaque = false
@@ -20,6 +23,8 @@ class MarkdownPane(markdown: String) : JEditorPane() {
         putClientProperty(HONOR_DISPLAY_PROPERTIES, true)
         font = JBFont.label()
         addHyperlinkListener(BrowserHyperlinkListener.INSTANCE)
+        // Setting the text moves the caret, which would scroll the enclosing panel to this pane.
+        (caret as? DefaultCaret)?.updatePolicy = DefaultCaret.NEVER_UPDATE
         text = convertMarkdownToHtml(markdown)
     }
 

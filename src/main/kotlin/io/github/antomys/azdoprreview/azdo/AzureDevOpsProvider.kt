@@ -35,6 +35,7 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
     /** Request defaults (commentType, subjectKind, ...) are sent; null fields are left out. */
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
     private val users = ConcurrentHashMap<String, ReviewUser>()
+    private val teamMembers = ConcurrentHashMap<String, List<ReviewUser>>()
 
     /** changeTrackingId by file path, per review and iteration; needed to anchor new threads. */
     private val trackingIds = ConcurrentHashMap<Pair<ReviewRef, Int>, Map<String, Int>>()
@@ -134,20 +135,47 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
             "PATCH", url(client.orgUrl, prPath(ref) + "/threads/$threadId", API), ThreadStatusUpdateDto(status.id),
         ).toThread(emptyMap())
 
+    /** The PUT replaces the reviewer entry, so it repeats whether the user is required: left out, a required reviewer becomes optional. */
     override suspend fun setVote(ref: ReviewRef, vote: Vote) {
         val me = currentUser().id
-        send<ReviewerVoteDto, ReviewerDto>("PUT", url(client.orgUrl, prPath(ref) + "/reviewers/$me", API), ReviewerVoteDto(vote.toAzdo()))
+        val isRequired = get<GitPullRequestDto>(url(client.orgUrl, prPath(ref), API)).reviewers.firstOrNull { it.id == me }?.isRequired == true
+        send<ReviewerVoteDto, ReviewerDto>(
+            "PUT", url(client.orgUrl, prPath(ref) + "/reviewers/$me", API), ReviewerVoteDto(vote.toAzdo(), isRequired),
+        )
     }
 
     /**
-     * Graph subject query is the only identity search verified to match name prefixes (it is a preview API).
-     * Its descriptors map to the identity ids used in mentions through Graph storage keys.
+     * Team members of the project, matched on any word of their name, plus a Graph subject query, which only matches the start
+     * of display names (a preview API). Either source may be unavailable for the PAT's scopes; the other is still used.
      */
-    override suspend fun searchUsers(query: String, limit: Int): List<ReviewUser> {
-        if (query.isBlank()) return emptyList()
-        val subjects = send<SubjectQueryDto, ListDto<GraphSubjectDto>>(
+    override suspend fun searchUsers(repo: RepoRef, query: String, limit: Int): List<ReviewUser> {
+        val members = try {
+            teamMembers(repo.project).filter { it.matches(query) }
+        } catch (e: AzureDevOpsException) {
+            emptyList()
+        }
+        val subjects = try {
+            if (query.isBlank()) emptyList() else graphSearch(query, limit)
+        } catch (e: AzureDevOpsException) {
+            emptyList()
+        }
+        return (members + subjects).distinctBy { it.id }.take(limit)
+    }
+
+    private suspend fun teamMembers(project: String): List<ReviewUser> = teamMembers[project] ?: run {
+        val projectPath = "/_apis/projects/${encode(project)}/teams"
+        get<ListDto<TeamDto>>(url(client.orgUrl, projectPath, "\$top" to MAX_TEAMS, API)).value
+            .flatMap { team -> get<ListDto<TeamMemberDto>>(url(client.orgUrl, "$projectPath/${team.id}/members", "\$top" to MAX_TEAM_MEMBERS, API)).value }
+            .map { it.identity.toUser() }
+            .distinctBy { it.id }
+            .also { teamMembers[project] = it }
+    }
+
+    /** Graph descriptors map to the identity ids used in mentions through Graph storage keys. */
+    private suspend fun graphSearch(query: String, limit: Int): List<ReviewUser> {
+        val subjects = send<SubjectQueryDto, SubjectQueryResultDto>(
             "POST", url(client.identityUrl, "/_apis/graph/subjectquery", GRAPH_API), SubjectQueryDto(query),
-        ).value
+        ).value.orEmpty()
         return subjects.take(limit).map { subject ->
             val id = get<StorageKeyDto>(url(client.identityUrl, "/_apis/graph/storagekeys/${encode(subject.descriptor)}", GRAPH_API)).value
             ReviewUser(id, subject.displayName ?: id, subject.mailAddress ?: subject.principalName).also { users[id] = it }
@@ -229,6 +257,8 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         created = Instant.parse(publishedDate),
         isDeleted = isDeleted,
         displayBody = AzureDevOpsMentions.render(content.orEmpty(), mentioned),
+        // Unedited comments report their publish time here.
+        updated = lastContentUpdatedDate?.let(Instant::parse)?.takeIf { it.isAfter(Instant.parse(publishedDate)) },
     )
 
     companion object {
@@ -236,6 +266,8 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         private val GRAPH_API = "api-version" to "7.1-preview.1"
         private const val HEADS = "refs/heads/"
         private const val MAX_CHANGES_PAGE = 2000
+        private const val MAX_TEAMS = 100
+        private const val MAX_TEAM_MEMBERS = 500
 
         /** Numeric values 1-6 map to these names in this order (verified against the service). */
         val STATUSES = listOf(

@@ -36,7 +36,8 @@ interface ReviewProvider {
     /** Sets the current user's vote, adding them as a reviewer if needed. */
     suspend fun setVote(ref: ReviewRef, vote: Vote)
 
-    suspend fun searchUsers(query: String, limit: Int = 10): List<ReviewUser>
+    /** Users to mention in [repo]'s reviews whose name or unique name [ReviewUser.matches] [query]. */
+    suspend fun searchUsers(repo: RepoRef, query: String, limit: Int = 10): List<ReviewUser>
 
     /** Looks up users by id, e.g. to show names for mentions stored as ids. */
     suspend fun resolveUsers(ids: Collection<String>): Map<String, ReviewUser>

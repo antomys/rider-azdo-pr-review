@@ -5,11 +5,13 @@ import io.github.antomys.azdoprreview.review.ChangeKind
 import io.github.antomys.azdoprreview.review.FakeReviewProvider
 import io.github.antomys.azdoprreview.review.FileChange
 import io.github.antomys.azdoprreview.review.RepoRef
+import io.github.antomys.azdoprreview.review.ReviewComment
 import io.github.antomys.azdoprreview.review.ReviewDetails
 import io.github.antomys.azdoprreview.review.ReviewRef
 import io.github.antomys.azdoprreview.review.ReviewState
 import io.github.antomys.azdoprreview.review.ReviewSummary
 import io.github.antomys.azdoprreview.review.ReviewTarget
+import io.github.antomys.azdoprreview.review.ReviewThread
 import io.github.antomys.azdoprreview.review.ReviewUser
 import io.github.antomys.azdoprreview.review.LineRange
 import io.github.antomys.azdoprreview.review.Revision
@@ -110,6 +112,82 @@ class PullRequestDetailsViewModelTest {
         assertEquals(listOf(anchor to "Why?"), provider.createdThreads)
         assertEquals(listOf(anchor), vm.threads.value.map { it.anchor })
     }
+
+    @Test
+    fun `suggests approving with suggestions while a thread the user started is open`() = runBlocking {
+        val provider = FakeReviewProvider(details = details, revisions = listOf(latest), threads = listOf(thread(1, author = other)))
+        val vm = PullRequestDetailsViewModel(this, ReviewTarget(provider, repo), summary)
+        vm.refresh().join()
+        assertEquals(Vote.APPROVED, vm.suggestedVote())
+
+        provider.threads += thread(2, author = me)
+        vm.refresh().join()
+        assertEquals(Vote.APPROVED_WITH_SUGGESTIONS, vm.suggestedVote())
+
+        provider.threads = provider.threads.map { if (it.id == 2) it.copy(status = provider.capabilities.resolvedStatus) else it }
+        vm.refresh().join()
+        assertEquals(Vote.APPROVED, vm.suggestedVote())
+    }
+
+    @Test
+    fun `a review with a comment posts the comment, then votes`() = runBlocking {
+        val provider = FakeReviewProvider(details = details, revisions = listOf(latest))
+        val vm = PullRequestDetailsViewModel(this, ReviewTarget(provider, repo), summary)
+        vm.refresh().join()
+
+        vm.submitReview(Vote.APPROVED, "  ")
+        vm.submitReview(Vote.WAITING_FOR_AUTHOR, "Please add tests")
+
+        assertEquals(listOf(null to "Please add tests"), provider.createdThreads)
+        assertEquals(listOf(Vote.APPROVED, Vote.WAITING_FOR_AUTHOR), provider.votes)
+    }
+
+    @Test
+    fun `discussion lists threads by start time, per file on request, with resolved ones on request`() {
+        val general = thread(1, created = 30)
+        val onA = thread(2, created = 10, anchor = ThreadAnchor("/a.cs"))
+        val resolvedOnA = thread(3, created = 20, anchor = ThreadAnchor("/a.cs")).copy(status = FakeReviewProvider().capabilities.resolvedStatus)
+        val onB = thread(4, created = 40, anchor = ThreadAnchor("/b.cs"))
+        val system = thread(5, created = 0).copy(isSystem = true, status = null)
+        val all = listOf(general, onA, resolvedOnA, onB, system)
+
+        assertEquals(listOf(2, 1, 4), PullRequestDetailsViewModel.discussion(all, null, showResolved = false).map { it.id })
+        assertEquals(listOf(2, 3, 1, 4), PullRequestDetailsViewModel.discussion(all, null, showResolved = true).map { it.id })
+        assertEquals(listOf(2, 3), PullRequestDetailsViewModel.discussion(all, edited, showResolved = true).map { it.id })
+    }
+
+    @Test
+    fun `mention search puts matching participants before the provider's results`() = runBlocking {
+        val provider = FakeReviewProvider(
+            details = details, revisions = listOf(latest), threads = listOf(thread(1, author = other)),
+            users = listOf(ReviewUser("x", "Ihor Search"), other),
+        )
+        val vm = PullRequestDetailsViewModel(this, ReviewTarget(provider, repo), summary)
+        vm.refresh().join()
+
+        assertEquals(listOf("o", "x"), vm.searchUsers("ih").map { it.id })
+        assertEquals(listOf("u"), vm.searchUsers("user").map { it.id })
+    }
+
+    @Test
+    fun `mention search keeps the participants when the provider's search fails`() = runBlocking {
+        val provider = FakeReviewProvider(
+            details = details, revisions = listOf(latest), threads = listOf(thread(1, author = other)),
+            searchFailure = IllegalStateException("bad response"),
+        )
+        val vm = PullRequestDetailsViewModel(this, ReviewTarget(provider, repo), summary)
+        vm.refresh().join()
+
+        assertEquals(listOf("o"), vm.searchUsers("ih").map { it.id })
+    }
+
+    private val me = ReviewUser("me", "Me")
+    private val other = ReviewUser("o", "Other Ihor")
+
+    private fun thread(id: Int, author: ReviewUser = me, created: Long = 0, anchor: ThreadAnchor? = null) = ReviewThread(
+        id, anchor, FakeReviewProvider().capabilities.openStatus, false,
+        listOf(ReviewComment(1, null, author, "text", Instant.ofEpochSecond(created), false)),
+    )
 
     private suspend fun kotlinx.coroutines.CoroutineScope.loadedWith(
         files: List<FileChange>,

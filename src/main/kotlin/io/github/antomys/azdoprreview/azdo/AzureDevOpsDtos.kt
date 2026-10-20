@@ -92,6 +92,7 @@ data class CommentDto(
     val author: IdentityRefDto,
     val content: String? = null,
     val publishedDate: String,
+    val lastContentUpdatedDate: String? = null,
     val commentType: String? = null,
     val isDeleted: Boolean = false,
 )
@@ -122,13 +123,17 @@ data class NewThreadDto(
 data class ThreadStatusUpdateDto(val status: String)
 
 @Serializable
-data class ReviewerVoteDto(val vote: Int)
+data class ReviewerVoteDto(val vote: Int, val isRequired: Boolean)
 
 @Serializable
 data class CommentUpdateDto(val content: String)
 
 @Serializable
 data class SubjectQueryDto(val query: String, val subjectKind: List<String> = listOf("User"))
+
+/** The subject query answers `"value": null` when nothing matches. */
+@Serializable
+data class SubjectQueryResultDto(val value: List<GraphSubjectDto>? = null)
 
 @Serializable
 data class GraphSubjectDto(
@@ -137,6 +142,12 @@ data class GraphSubjectDto(
     val mailAddress: String? = null,
     val principalName: String? = null,
 )
+
+@Serializable
+data class TeamDto(val id: String)
+
+@Serializable
+data class TeamMemberDto(val identity: IdentityRefDto)
 
 @Serializable
 data class StorageKeyDto(val value: String)
