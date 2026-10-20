@@ -150,6 +150,9 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
 
     override fun encodeMention(user: ReviewUser): String = AzureDevOpsMentions.encode(user.id)
 
+    override fun webUrl(ref: ReviewRef): String =
+        "${client.orgUrl}/${encode(ref.repo.project)}/_git/${encode(ref.repo.repository)}/pullrequest/${ref.id}"
+
     private suspend fun changeEntries(ref: ReviewRef, iteration: Int): List<ChangeEntryDto> {
         val entries = mutableListOf<ChangeEntryDto>()
         var skip = 0

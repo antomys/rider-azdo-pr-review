@@ -8,4 +8,12 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Azure DevOps PR Review" anchor="left" icon="AllIcons.Vcs.Merge"
+                    factoryClass="io.github.antomys.azdoprreview.toolwindow.PullRequestToolWindowFactory"/>
+        <projectConfigurable id="io.github.antomys.azdoprreview.settings" parentId="tools"
+                             displayName="Azure DevOps PR Review"
+                             instance="io.github.antomys.azdoprreview.settings.AzureDevOpsConfigurable"/>
+    </extensions>
 </idea-plugin>
