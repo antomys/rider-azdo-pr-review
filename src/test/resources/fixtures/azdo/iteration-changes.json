@@ -1,0 +1,44 @@
+{
+  "changeEntries": [
+    {
+      "changeTrackingId": 1,
+      "originalPath": "/docs/notes.md",
+      "changeId": 1,
+      "item": {
+        "objectId": "C28CDA24B94E0741E17B182A52745DB344A5704B",
+        "originalObjectId": "C28CDA24B94E0741E17B182A52745DB344A5704B",
+        "path": "/docs/NOTES.md"
+      },
+      "changeType": "rename"
+    },
+    {
+      "changeTrackingId": 2,
+      "changeId": 2,
+      "item": {
+        "objectId": "927A82A1BD0C66CF73D9A2D22AB2EDEB3B586D76",
+        "originalObjectId": "CFE134B4DE1F626DA18E8C9760B0E54E230FD376",
+        "path": "/src/Calculator.cs"
+      },
+      "changeType": "edit"
+    },
+    {
+      "changeTrackingId": 4,
+      "originalPath": "/src/Legacy.cs",
+      "changeId": 4,
+      "item": {
+        "originalObjectId": "EBF54586E840B64702D1A4F31D10AD18F5447177",
+        "path": null
+      },
+      "changeType": "delete"
+    },
+    {
+      "changeTrackingId": 3,
+      "changeId": 3,
+      "item": {
+        "objectId": "9F382D05433B4212FE3C8776A8B4413114DAEC7B",
+        "path": "/src/Greeter.cs"
+      },
+      "changeType": "add"
+    }
+  ]
+}

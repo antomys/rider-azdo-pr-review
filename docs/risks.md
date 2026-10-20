@@ -30,6 +30,11 @@ Each risk has a likelihood/impact rating (L/M/H) and a mitigation. Research date
   - Isolate platform-specific UI behind thin adapters. Prefer public APIs and accept some duplicated UI code over internal calls.
   - Budget a compatibility pass per major release (263, …).
 
+## R3a. Bundled libraries marked internal — impact M, likelihood M
+- **Issue:** in Rider 2026.2 the platform's kotlinx.serialization (and Jackson, Gson) are embedded modules with `visibility="internal"`. The plugin compiles against them without bundling a copy.
+- **Status:** `verifyPlugin` against RD-262.10315.191 reports Compatible, with no internal-API usages.
+- **Mitigation:** run the verifier in CI. If a future build hides or changes the module, bundle our own JSON library.
+
 ## R4. Diff rendering limits — impact M, likelihood M
 - **No line hunks:** Azure DevOps returns no line hunks, so diffs are computed locally. The local result can differ from the web UI for whitespace, line endings or renames.
 - **Position drift:** thread positions are tied to iterations. After new pushes, the server re-tracks them (`trackingCriteria`), and our local line mapping may disagree.

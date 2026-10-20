@@ -1,0 +1,11 @@
+<idea-plugin>
+    <id>io.github.antomys.azdoprreview</id>
+    <name>Azure DevOps PR Review</name>
+    <vendor>antomys</vendor>
+    <description><![CDATA[
+        Review Azure DevOps pull requests in Rider: browse pull requests, read the diff,
+        and discuss changes in inline comment threads.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+</idea-plugin>

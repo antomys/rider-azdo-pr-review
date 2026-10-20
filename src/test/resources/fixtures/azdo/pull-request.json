@@ -1,0 +1,67 @@
+{
+  "repository": {
+    "id": "c3ce6006-127f-41ef-94a9-71b2d23db326",
+    "name": "test-pr-reviewer",
+    "url": "https://dev.azure.com/fabrikam/203e9d76-da2b-4fb4-b2dc-2a1b45004a3d/_apis/git/repositories/c3ce6006-127f-41ef-94a9-71b2d23db326",
+    "project": {
+      "id": "203e9d76-da2b-4fb4-b2dc-2a1b45004a3d",
+      "name": "test-pr-reviewer",
+      "url": "https://dev.azure.com/fabrikam/_apis/projects/203e9d76-da2b-4fb4-b2dc-2a1b45004a3d",
+      "state": "wellFormed",
+      "revision": 11,
+      "visibility": "private",
+      "lastUpdateTime": "2026-10-20T13:08:33.71Z"
+    },
+    "size": 642,
+    "remoteUrl": "https://fabrikam@dev.azure.com/fabrikam/test-pr-reviewer/_git/test-pr-reviewer",
+    "sshUrl": "git@ssh.dev.azure.com:v3/fabrikam/test-pr-reviewer/test-pr-reviewer",
+    "webUrl": "https://dev.azure.com/fabrikam/test-pr-reviewer/_git/test-pr-reviewer",
+    "isDisabled": false,
+    "isInMaintenance": false
+  },
+  "pullRequestId": 1,
+  "codeReviewId": 1,
+  "status": "active",
+  "createdBy": {
+    "displayName": "Test User",
+    "url": "https://spsprodcca1.vssps.visualstudio.com/A1fd806b9-e2b0-4816-a02d-bf40509e7e99/_apis/Identities/11111111-1111-1111-1111-111111111111",
+    "id": "11111111-1111-1111-1111-111111111111",
+    "uniqueName": "test.user@example.com",
+    "descriptor": "aad.dGVzdC11c2Vy"
+  },
+  "creationDate": "2026-10-20T14:09:14.8576043Z",
+  "title": "Sample change for review testing",
+  "description": "Sandbox PR used to verify thread and comment APIs.",
+  "sourceRefName": "refs/heads/feature/review-sample",
+  "targetRefName": "refs/heads/main",
+  "mergeStatus": "succeeded",
+  "isDraft": false,
+  "mergeId": "b520bb1f-7ec1-4d74-b980-a5f881a824fd",
+  "lastMergeSourceCommit": {
+    "commitId": "1e7f4c2ef495547142e693aa2f56d8cee5ebf71d",
+    "url": "https://dev.azure.com/fabrikam/203e9d76-da2b-4fb4-b2dc-2a1b45004a3d/_apis/git/repositories/c3ce6006-127f-41ef-94a9-71b2d23db326/commits/1e7f4c2ef495547142e693aa2f56d8cee5ebf71d"
+  },
+  "lastMergeTargetCommit": {
+    "commitId": "7f2b031d193b198f0ccc7555c01ce517ef2bd741",
+    "url": "https://dev.azure.com/fabrikam/203e9d76-da2b-4fb4-b2dc-2a1b45004a3d/_apis/git/repositories/c3ce6006-127f-41ef-94a9-71b2d23db326/commits/7f2b031d193b198f0ccc7555c01ce517ef2bd741"
+  },
+  "lastMergeCommit": {
+    "commitId": "cda2a12a70adf036d503e3c7034a4428bc5928a6",
+    "author": {
+      "name": "Test User",
+      "email": "test.user@example.com",
+      "date": "2026-10-20T14:09:15Z"
+    },
+    "committer": {
+      "name": "Test User",
+      "email": "test.user@example.com",
+      "date": "2026-10-20T14:09:15Z"
+    },
+    "comment": "Merge pull request 1 from feature/review-sample into main",
+    "url": "https://dev.azure.com/fabrikam/203e9d76-da2b-4fb4-b2dc-2a1b45004a3d/_apis/git/repositories/c3ce6006-127f-41ef-94a9-71b2d23db326/commits/cda2a12a70adf036d503e3c7034a4428bc5928a6"
+  },
+  "reviewers": [],
+  "url": "https://dev.azure.com/fabrikam/203e9d76-da2b-4fb4-b2dc-2a1b45004a3d/_apis/git/repositories/c3ce6006-127f-41ef-94a9-71b2d23db326/pullRequests/1",
+  "supportsIterations": true,
+  "artifactId": "vstfs:///Git/PullRequestId/203e9d76-da2b-4fb4-b2dc-2a1b45004a3d%2fc3ce6006-127f-41ef-94a9-71b2d23db326%2f1"
+}

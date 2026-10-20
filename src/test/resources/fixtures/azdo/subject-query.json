@@ -1,0 +1,16 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "subjectKind": "user",
+      "domain": "33333333-3333-3333-3333-333333333333",
+      "principalName": "test.user@example.com",
+      "mailAddress": "test.user@example.com",
+      "origin": "msa",
+      "originId": "22222222-2222-2222-2222-222222222222",
+      "displayName": "Test User",
+      "url": "https://vssps.dev.azure.com/fabrikam/_apis/Graph/Users/aad.dGVzdC11c2Vy",
+      "descriptor": "aad.dGVzdC11c2Vy"
+    }
+  ]
+}

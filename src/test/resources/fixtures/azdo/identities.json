@@ -1,0 +1,17 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "descriptor": "aad.dGVzdC11c2Vy",
+      "subjectDescriptor": "aad.dGVzdC11c2Vy",
+      "providerDisplayName": "Test User",
+      "isActive": true,
+      "members": [],
+      "memberOf": [],
+      "memberIds": [],
+      "resourceVersion": 2,
+      "metaTypeId": 255
+    }
+  ]
+}
