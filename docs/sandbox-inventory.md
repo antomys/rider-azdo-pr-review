@@ -32,3 +32,11 @@ Verified:
 - PR 3: my vote is 5 and `isRequired` is false. Casting the vote added 1 system thread.
 - The PR author can add themselves as a reviewer and vote.
 - Azure DevOps accepted PR 6 with source equal to target (no fallback commits needed); it has no file changes.
+
+## Created 2026-10-20 (UI test of comments and voting, PR 1)
+
+| Artifact | Details |
+|---|---|
+| PR 1 thread 8 | Line comment on `/src/Calculator.cs` line 3 plus one reply, then resolved, all from the plugin |
+| PR 1 threads 9–12 | System threads from the vote test: joined as reviewer, voted 5, voted 0, declined to review |
+| PR 1 reviewers | The test identity was added by voting, then removed again; PR 1 has no reviewers |
