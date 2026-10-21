@@ -117,8 +117,10 @@ class PullRequestListViewModel(
     }
 
     private suspend fun load(): State {
+        val previous = this.target
         val target = connect().also { target = it } ?: return State.NotConfigured
-        if (me == null) me = target.provider.currentUser()
+        // A new provider means a new sign-in, possibly as someone else.
+        if (me == null || target.provider !== previous?.provider) me = target.provider.currentUser()
         val filters = _filters.value
         val reviews = target.provider.listReviews(target.repo, ReviewFilter(filters.state, filters.author?.id, filters.reviewer?.id))
         return State.Loaded(reviews, reviews.filter(filters::matches))

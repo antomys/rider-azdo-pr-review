@@ -74,6 +74,19 @@ class PullRequestListViewModelTest {
     }
 
     @Test
+    fun `reads the current user again after signing in with a new provider`() = runBlocking {
+        var provider = FakeReviewProvider(me = ReviewUser("a", "A"))
+        val vm = PullRequestListViewModel(this) { ReviewTarget(provider, repo) }
+        vm.refresh().join()
+        assertEquals("a", vm.me?.id)
+
+        provider = FakeReviewProvider(me = ReviewUser("b", "B"))
+        vm.refresh().join()
+
+        assertEquals("b", vm.me?.id)
+    }
+
+    @Test
     fun `reports missing settings`() = runBlocking {
         val vm = PullRequestListViewModel(this) { null }
 
