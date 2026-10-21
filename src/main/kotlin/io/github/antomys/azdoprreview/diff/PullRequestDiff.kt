@@ -12,6 +12,8 @@ import com.intellij.diff.impl.CacheDiffRequestChainProcessor
 import com.intellij.diff.impl.DiffRequestProcessor
 import com.intellij.diff.requests.DiffRequest
 import com.intellij.diff.requests.SimpleDiffRequest
+import com.intellij.diff.util.DiffUserDataKeys
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
@@ -42,6 +44,10 @@ object PullRequestDiff {
  */
 class ReviewDiff(private val project: Project, private val vm: PullRequestDetailsViewModel, private val scope: CoroutineScope) {
     private var file: ReviewDiffVirtualFile? = null
+    private val toolbar = ReviewDiffActions(project, vm, scope, this).actions
+
+    /** Whether the diff tab is open. */
+    fun isOpen(): Boolean = file?.let(FileEditorManager.getInstance(project)::isFileOpen) == true
 
     fun show(change: FileChange, focus: Boolean) {
         val state = vm.state.value as? State.Loaded ?: return
@@ -57,7 +63,7 @@ class ReviewDiff(private val project: Project, private val vm: PullRequestDetail
         }
         // A refresh can change the file list, so a stale tab is replaced rather than reused.
         current?.let(editors::closeFile)
-        val producers = state.changes.map { FileDiffProducer(project, ReviewDiffFile(project, vm, scope, it), state) }
+        val producers = state.changes.map { FileDiffProducer(project, ReviewDiffFile(project, vm, scope, it), state, toolbar) }
         val name = "PR #${vm.summary.ref.id}: ${vm.summary.title}"
         file = ReviewDiffVirtualFile(SimpleDiffRequestChain.fromProducers(producers, index), name, state).also { tabs.showDiffFile(it, focus) }
     }
@@ -76,6 +82,7 @@ private class FileDiffProducer(
     private val project: Project,
     private val file: ReviewDiffFile,
     private val state: State.Loaded,
+    private val toolbar: List<AnAction>,
 ) : DiffRequestProducer {
     private val change = file.change
     private val target = file.vm.target
@@ -86,6 +93,7 @@ private class FileDiffProducer(
         val (left, right) = diffSides(change, state.revision)
         val request = SimpleDiffRequest(name, content(left), content(right), title(left, "base"), title(right, "iteration ${state.revision.id}"))
         request.putUserData(PullRequestDiff.FILE, file)
+        request.putUserData(DiffUserDataKeys.CONTEXT_ACTIONS, toolbar)
         return request
     }
 

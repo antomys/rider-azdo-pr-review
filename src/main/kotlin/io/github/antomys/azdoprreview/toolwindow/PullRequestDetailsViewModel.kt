@@ -9,6 +9,7 @@ import io.github.antomys.azdoprreview.review.ReviewUser
 import io.github.antomys.azdoprreview.review.Revision
 import io.github.antomys.azdoprreview.review.ThreadAnchor
 import io.github.antomys.azdoprreview.review.Vote
+import io.github.antomys.azdoprreview.ui.encode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * One pull request: details, the files changed in its latest iteration, its threads, and the user's viewed marks.
@@ -60,6 +62,12 @@ class PullRequestDetailsViewModel(
 
     /** A thread the diff should scroll to once it shows the thread's file; see [navigateTo]. */
     val pendingNavigation: StateFlow<ReviewThread?> = _pendingNavigation.asStateFlow()
+
+    private val _drafts = MutableStateFlow<List<DraftComment>>(emptyList())
+
+    /** Comments written but not sent yet, oldest first; they are sent together with [submitReview]. */
+    val drafts: StateFlow<List<DraftComment>> = _drafts.asStateFlow()
+    private val draftIds = AtomicLong()
 
     private var loading: Job? = null
 
@@ -108,23 +116,95 @@ class PullRequestDetailsViewModel(
         _pendingNavigation.compareAndSet(thread, null)
     }
 
-    /** Approve, or approve with suggestions while threads the user started are still open. */
+    /** Approve, or approve with suggestions while the user has drafts or open threads they started. */
     fun suggestedVote(): Vote {
         val me = (state.value as? State.Loaded)?.me ?: return Vote.APPROVED
         val openOwnThreads = threads.value.any { !it.isSystem && it.status != null && !it.isResolved && it.comments.firstOrNull()?.author?.id == me.id }
-        return if (openOwnThreads) Vote.APPROVED_WITH_SUGGESTIONS else Vote.APPROVED
+        return if (openOwnThreads || drafts.value.isNotEmpty()) Vote.APPROVED_WITH_SUGGESTIONS else Vote.APPROVED
+    }
+
+    /**
+     * The thread after (or before, when not [forward]) [line] (1-based) of [file], in file order then line order;
+     * null at either end. File-level threads come before a file's line threads.
+     */
+    fun adjacentThread(file: FileChange?, line: Int, forward: Boolean): ReviewThread? {
+        val changes = (state.value as? State.Loaded)?.changes ?: return null
+        fun key(index: Int, line: Int) = index.toLong() * Int.MAX_VALUE + line
+        val current = key(changes.indexOf(file).coerceAtLeast(0), line)
+        val ordered = threads.value.filter { !it.isSystem && it.anchor != null && it.comments.any { c -> !c.isDeleted } }
+            .mapNotNull { thread -> changeOf(thread)?.let { key(changes.indexOf(it), thread.anchor?.lines?.start ?: 0) to thread } }
+            .sortedBy { it.first }
+        return if (forward) ordered.firstOrNull { it.first > current }?.second else ordered.lastOrNull { it.first < current }?.second
+    }
+
+    /** The signed-in user, once loaded. */
+    fun me(): ReviewUser? = (state.value as? State.Loaded)?.me
+
+    /** Whether the user is one of the reviewers. */
+    fun isReviewer(): Boolean {
+        val loaded = state.value as? State.Loaded ?: return false
+        return loaded.details.reviewers.any { it.user.id == loaded.me.id }
+    }
+
+    /** A new thread on [anchor] (or the whole pull request when null), or a reply to [replyTo] when given. */
+    fun addDraft(anchor: ThreadAnchor?, replyTo: ReviewThread?, body: String, mentioned: Map<String, ReviewUser> = emptyMap()): DraftComment =
+        DraftComment(draftIds.incrementAndGet(), anchor ?: replyTo?.anchor, replyTo?.id, body, mentioned)
+            .also { draft -> _drafts.update { it + draft } }
+
+    fun editDraft(draft: DraftComment, body: String, mentioned: Map<String, ReviewUser> = emptyMap()) {
+        _drafts.update { drafts -> drafts.map { if (it.id == draft.id) it.copy(body = body, mentioned = mentioned) else it } }
+    }
+
+    fun deleteDraft(draft: DraftComment) {
+        _drafts.update { drafts -> drafts.filterNot { it.id == draft.id } }
+    }
+
+    /** Sends one draft now, without the rest of the review. */
+    suspend fun postDraft(draft: DraftComment) {
+        send(draft)
+        deleteDraft(draft)
+        reloadThreads()
+    }
+
+    /**
+     * Sends every draft in the order they were written, then [comment] as a pull request comment when it isn't blank,
+     * then [vote] when given. A draft is removed once it is sent, so after a failure only the unsent ones remain.
+     */
+    suspend fun submitReview(vote: Vote?, comment: String) {
+        try {
+            for (draft in drafts.value) {
+                send(draft)
+                deleteDraft(draft)
+            }
+            if (comment.isNotBlank()) target.provider.createThread(summary.ref, loaded().revision, null, comment)
+        } finally {
+            reloadThreads()
+        }
+        if (vote != null) vote(vote)
+    }
+
+    /** Adds the current user as an optional reviewer. */
+    suspend fun addMeAsReviewer() = requestReview(loaded().me)
+
+    suspend fun requestReview(user: ReviewUser) {
+        target.provider.addReviewer(summary.ref, user)
+        reloadDetails()
+    }
+
+    suspend fun complete() {
+        target.provider.complete(summary.ref)
+        reloadDetails()
+    }
+
+    suspend fun abandon() {
+        target.provider.abandon(summary.ref)
+        reloadDetails()
     }
 
     /** The user's vote, or [Vote.NONE] if they aren't a reviewer. */
     fun myVote(): Vote {
         val loaded = state.value as? State.Loaded ?: return Vote.NONE
         return loaded.details.reviewers.firstOrNull { it.user.id == loaded.me.id }?.vote ?: Vote.NONE
-    }
-
-    /** Posts [comment] as a pull request comment when it isn't blank, then votes. */
-    suspend fun submitReview(vote: Vote, comment: String) {
-        if (comment.isNotBlank()) createThread(null, comment)
-        vote(vote)
     }
 
     /** People to mention: the review's participants that match [query] first, then the provider's search results. */
@@ -156,8 +236,25 @@ class PullRequestDetailsViewModel(
 
     suspend fun vote(vote: Vote) {
         target.provider.setVote(summary.ref, vote)
+        reloadDetails()
+        // The vote also adds a system event to the discussion.
+        reloadThreads()
+    }
+
+    private suspend fun reloadDetails() {
         val details = target.provider.getReview(summary.ref)
         _state.update { if (it is State.Loaded) it.copy(details = details) else it }
+    }
+
+    private suspend fun send(draft: DraftComment) {
+        val replyTo = draft.replyTo
+        val body = encode(draft.body, draft.mentioned, target.provider::encodeMention)
+        if (replyTo == null) {
+            target.provider.createThread(summary.ref, loaded().revision, draft.anchor, body)
+        } else {
+            val thread = threads.value.firstOrNull { it.id == replyTo } ?: error("The thread this reply was written for no longer exists")
+            target.provider.reply(summary.ref, thread.id, thread.comments.first().id, body)
+        }
     }
 
     suspend fun createThread(anchor: ThreadAnchor?, body: String) {
@@ -214,3 +311,9 @@ class PullRequestDetailsViewModel(
 
 /** The path a change is shown and marked under: the new path, or the old one for deleted files. */
 val FileChange.path: String get() = newPath ?: oldPath.orEmpty()
+
+/**
+ * A comment held back until the review is submitted: a new thread on [anchor], or a reply to thread [replyTo].
+ * [body] is as typed, with mentions as `@Name`; [mentioned] maps those names to people, for sending.
+ */
+data class DraftComment(val id: Long, val anchor: ThreadAnchor?, val replyTo: Int?, val body: String, val mentioned: Map<String, ReviewUser> = emptyMap())

@@ -33,10 +33,15 @@ import io.github.antomys.azdoprreview.review.LineRange
 import io.github.antomys.azdoprreview.review.ReviewThread
 import io.github.antomys.azdoprreview.review.Side
 import io.github.antomys.azdoprreview.review.ThreadAnchor
-import io.github.antomys.azdoprreview.ui.CommentEditor
+import io.github.antomys.azdoprreview.toolwindow.DraftComment
+import io.github.antomys.azdoprreview.ui.Avatars
+import io.github.antomys.azdoprreview.ui.CommentAction
+import io.github.antomys.azdoprreview.ui.CommentComposer
+import io.github.antomys.azdoprreview.ui.DraftPanel
 import io.github.antomys.azdoprreview.ui.Mentions
 import io.github.antomys.azdoprreview.ui.ThreadPanel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -46,7 +51,8 @@ import javax.swing.SwingUtilities
 import com.intellij.diff.util.Side as EditorSide
 
 /**
- * Shows a pull request file's threads inside its diff, with a gutter "+" to start new ones.
+ * Shows a pull request file's threads and pending drafts inside its diff, a comment marker in the gutter of each line
+ * that has them, and a gutter "+" to start new ones (saved as drafts unless posted at once).
  * Side-by-side diffs and the one-sided view of added or deleted files are supported; the unified view is not yet.
  */
 class ReviewDiffExtension : DiffExtension() {
@@ -70,13 +76,14 @@ private class DiffThreads(
 ) {
     private val change = file.change
     private val threadInlays = mutableListOf<Inlay<*>>()
+    private val markers = mutableListOf<Pair<EditorEx, RangeHighlighter>>()
 
     /** True once the viewer has computed the diff and done its own initial scrolling. */
     private var ready = false
 
     fun install() {
         val jobs = listOf(
-            file.scope.launch(Dispatchers.EDT) { file.vm.threads.collect(::render) },
+            file.scope.launch(Dispatchers.EDT) { combine(file.vm.threads, file.vm.drafts, ::Pair).collect { (threads, drafts) -> render(threads, drafts) } },
             file.scope.launch(Dispatchers.EDT) { file.vm.pendingNavigation.collect { if (ready) scrollToPending() } },
         )
         (viewer as? DiffViewerBase)?.addListener(object : DiffViewerListener() {
@@ -89,6 +96,7 @@ private class DiffThreads(
         Disposer.register(viewer) {
             jobs.forEach { it.cancel() }
             threadInlays.forEach(Disposer::dispose)
+            clearMarkers()
         }
         Side.entries.forEach { side -> editor(side)?.let { installGutter(side, it) } }
     }
@@ -112,15 +120,41 @@ private class DiffThreads(
     private fun editor(side: Side): EditorEx? =
         path(side)?.let { editors(if (side == Side.LEFT) EditorSide.LEFT else EditorSide.RIGHT) }
 
-    private fun render(threads: List<ReviewThread>) {
+    private fun isOnThisFile(draft: DraftComment) =
+        draft.replyTo == null && draft.anchor?.path?.let { it == change.newPath || it == change.oldPath } == true
+
+    private fun render(threads: List<ReviewThread>, drafts: List<DraftComment>) {
         threadInlays.forEach(Disposer::dispose)
         threadInlays.clear()
-        threads.filter { !it.isSystem && isOnThisFile(it) }.forEach { thread ->
+        clearMarkers()
+        threads.filter { !it.isSystem && isOnThisFile(it) && it.comments.any { c -> !c.isDeleted } }.forEach { thread ->
             val lines = thread.anchor!!.lines
             val editor = editor(sideOf(thread)) ?: return@forEach
-            val panel = ThreadPanel(file.project, thread, file.vm, file.scope, UIUtil.getPanelBackground())
+            val replies = drafts.filter { it.replyTo == thread.id }
+            val panel = ThreadPanel(file.project, thread, file.vm, file.scope, UIUtil.getPanelBackground(), drafts = replies, replyAsDraft = true)
             threadInlays += addInlay(editor, panel, lines?.end, above = lines == null)
+            lines?.let { mark(editor, it.end, thread.comments.count { c -> !c.isDeleted } + replies.size) }
         }
+        drafts.filter(::isOnThisFile).forEach { draft ->
+            val lines = draft.anchor!!.lines
+            val editor = editor(lines?.side ?: if (change.newPath != null) Side.RIGHT else Side.LEFT) ?: return@forEach
+            threadInlays += addInlay(editor, boxed(DraftPanel(file.project, draft, file.vm, file.scope)), lines?.end, above = lines == null)
+            lines?.let { mark(editor, it.end, 1) }
+        }
+    }
+
+    /** A comment bubble in the gutter of 1-based [line]. */
+    private fun mark(editor: EditorEx, line: Int, comments: Int) {
+        val index = line - 1
+        if (index !in 0 until editor.document.lineCount) return
+        val highlighter = editor.markupModel.addLineHighlighter(index, HighlighterLayer.LAST, null)
+        highlighter.gutterIconRenderer = CommentMarker(comments)
+        markers += editor to highlighter
+    }
+
+    private fun clearMarkers() {
+        markers.forEach { (editor, highlighter) -> editor.markupModel.removeHighlighter(highlighter) }
+        markers.clear()
     }
 
     /** Adds [component] below 1-based [line], or above the first line when [line] is null. */
@@ -172,24 +206,38 @@ private class DiffThreads(
             line to line
         }
         var inlay: Inlay<*>? = null
-        val draft = CommentEditor(
-            file.project, file.scope, "Comment",
+        val anchor = ThreadAnchor(path, LineRange(side, start + 1, end + 1))
+        val composer = CommentComposer(
+            file.project, file.scope, file.vm.me(), Avatars.of(file.vm.target.provider),
             "Comment on ${if (start == end) "line ${end + 1}" else "lines ${start + 1}–${end + 1}"}… (@ to mention)",
             Mentions(file.vm::searchUsers, file.vm::encodeMention),
-            submit = { body ->
-                file.vm.createThread(ThreadAnchor(path, LineRange(side, start + 1, end + 1)), body)
+            primary = CommentAction("Save as Draft", "add draft") {
+                file.vm.addDraft(anchor, null, it.text, it.mentioned)
                 inlay?.let(Disposer::dispose)
             },
+            others = listOf(CommentAction("Post Now", "post") {
+                file.vm.createThread(anchor, it.encoded)
+                inlay?.let(Disposer::dispose)
+            }),
             cancel = { inlay?.let(Disposer::dispose) },
         )
-        val box = JPanel(BorderLayout()).apply {
-            background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.compound(RoundedLineBorder(JBColor.border(), JBUI.scale(8)), JBUI.Borders.empty(8, 10))
-            add(draft)
-        }
-        inlay = addInlay(editor, box, end + 1, above = false)
+        inlay = addInlay(editor, boxed(composer), end + 1, above = false)
         Disposer.register(viewer, inlay)
-        SwingUtilities.invokeLater { draft.focus() }
+        SwingUtilities.invokeLater { composer.focus() }
+    }
+
+    private fun boxed(content: JComponent) = JPanel(BorderLayout()).apply {
+        background = UIUtil.getPanelBackground()
+        border = JBUI.Borders.compound(RoundedLineBorder(JBColor.border(), JBUI.scale(8)), JBUI.Borders.empty(8, 10))
+        add(content)
+    }
+
+    private class CommentMarker(private val comments: Int) : GutterIconRenderer() {
+        override fun getIcon() = AllIcons.General.Balloon
+        override fun getTooltipText() = if (comments == 1) "1 comment" else "$comments comments"
+        override fun getAlignment() = Alignment.RIGHT
+        override fun equals(other: Any?) = other is CommentMarker && other.comments == comments
+        override fun hashCode() = comments
     }
 
     private inner class AddCommentIcon(private val side: Side, private val line: Int) : GutterIconRenderer() {

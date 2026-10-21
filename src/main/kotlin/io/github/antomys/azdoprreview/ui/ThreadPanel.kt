@@ -17,6 +17,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import io.github.antomys.azdoprreview.review.ReviewComment
 import io.github.antomys.azdoprreview.review.ReviewThread
+import io.github.antomys.azdoprreview.toolwindow.DraftComment
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -34,8 +35,9 @@ import javax.swing.JPanel
 import javax.swing.SwingConstants
 
 /**
- * One discussion thread: the first comment, its replies indented below it, a reply box, and resolve / reopen.
- * A resolved thread starts collapsed to one grey, struck-through line; clicking it expands it.
+ * One discussion thread: the first comment, its replies indented below it, pending reply [drafts], a reply box, and
+ * resolve / reopen. A resolved thread starts collapsed to one grey, struck-through line; clicking it expands it.
+ * Replies are saved as drafts when [replyAsDraft] (with "Post Now" in the drop-down), otherwise sent at once.
  * [onLocation], when given, shows the thread's file and line as a link that calls it.
  */
 class ThreadPanel(
@@ -45,11 +47,17 @@ class ThreadPanel(
     private val scope: CoroutineScope,
     background: Color,
     private val onLocation: ((ReviewThread) -> Unit)? = null,
+    private val drafts: List<DraftComment> = emptyList(),
+    replyAsDraft: Boolean = false,
 ) : JPanel(VerticalLayout(JBUI.scale(8))) {
+    private val avatars = Avatars.of(vm.target.provider)
     private val footer = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(12), 0)).apply { isOpaque = false }
-    private val replyEditor = CommentEditor(
-        project, scope, "Reply", "Reply… (@ to mention)", Mentions(vm::searchUsers, vm::encodeMention),
-        submit = { vm.reply(thread, it) }, cancel = { showReply(false) },
+    private val postNow = CommentAction("Post Now", "reply") { vm.reply(thread, it.encoded) }
+    private val replyEditor = CommentComposer(
+        project, scope, vm.me(), avatars, "Reply… (@ to mention)", Mentions(vm::searchUsers, vm::encodeMention),
+        primary = if (replyAsDraft) CommentAction("Save as Draft", "add draft") { vm.addDraft(null, thread, it.text, it.mentioned) } else postNow,
+        others = if (replyAsDraft) listOf(postNow) else emptyList(),
+        cancel = { showReply(false) },
     )
     private val comments = thread.comments.filterNot { it.isDeleted }
     private val textColor = if (thread.isResolved) UIUtil.getContextHelpForeground() else null
@@ -61,7 +69,8 @@ class ThreadPanel(
         if (thread.status != null) {
             footer.add(ActionLink(if (thread.isResolved) "Reopen" else "Resolve") { setResolved(!thread.isResolved) })
         }
-        if (thread.isResolved) showCollapsed() else showExpanded()
+        // A pending reply keeps a resolved thread open, so the reply stays in sight.
+        if (thread.isResolved && drafts.isEmpty()) showCollapsed() else showExpanded()
     }
 
     private fun showCollapsed() {
@@ -99,20 +108,22 @@ class ThreadPanel(
         locationLink()?.let(::add)
         if (thread.isResolved) add(ActionLink("Collapse") { showCollapsed() }.apply { icon = AllIcons.General.ArrowDown })
         comments.firstOrNull()?.let { add(comment(it, thread.status?.let { s -> statusLabel(s.id, s.isResolved) })) }
-        comments.drop(1).forEach { reply ->
-            add(JPanel(BorderLayout()).apply {
-                isOpaque = false
-                border = JBUI.Borders.compound(
-                    JBUI.Borders.emptyLeft(14),
-                    JBUI.Borders.customLine(JBColor.border(), 0, 2, 0, 0),
-                    JBUI.Borders.emptyLeft(10),
-                )
-                add(comment(reply, null))
-            })
-        }
+        comments.drop(1).forEach { reply -> add(indented(comment(reply, null))) }
+        drafts.forEach { add(indented(DraftPanel(project, it, vm, scope))) }
         add(footer)
         add(replyEditor.apply { isVisible = false })
         relayout()
+    }
+
+    /** A reply: indented, with a line on its left that ties it to the thread. */
+    private fun indented(content: JComponent) = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        border = JBUI.Borders.compound(
+            JBUI.Borders.emptyLeft(14),
+            JBUI.Borders.customLine(JBColor.border(), 0, 2, 0, 0),
+            JBUI.Borders.emptyLeft(10),
+        )
+        add(content)
     }
 
     private fun relayout() {
@@ -141,7 +152,7 @@ class ThreadPanel(
         // Name, then the time, which shortens rather than disappears when the thread is narrow, then the status.
         val header = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
             isOpaque = false
-            add(JBLabel(comment.author.displayName, AllIcons.General.User, SwingConstants.LEADING).apply {
+            add(JBLabel(comment.author.displayName, avatars.icon(comment.author, AVATAR_SIZE, this@ThreadPanel), SwingConstants.LEADING).apply {
                 font = JBFont.label().asBold()
                 textColor?.let { foreground = it }
             }, BorderLayout.WEST)
@@ -192,6 +203,8 @@ class ThreadPanel(
     }
 
     private companion object {
+        const val AVATAR_SIZE = 20
+
         /** Markdown punctuation left out of a one-line summary. */
         val MARKDOWN_MARKS = Regex("""[`*_~]|^\s*(#+|>|[-+]|\d+\.)\s+""")
 

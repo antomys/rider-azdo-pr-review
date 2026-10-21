@@ -20,6 +20,10 @@ data class ReviewUser(val id: String, val displayName: String, val uniqueName: S
 
 enum class ReviewState { OPEN, MERGED, CLOSED }
 
+enum class Vote { APPROVED, APPROVED_WITH_SUGGESTIONS, NONE, WAITING_FOR_AUTHOR, REJECTED }
+
+data class Reviewer(val user: ReviewUser, val vote: Vote, val isRequired: Boolean)
+
 data class ReviewSummary(
     val ref: ReviewRef,
     val title: String,
@@ -29,11 +33,12 @@ data class ReviewSummary(
     val state: ReviewState,
     val isDraft: Boolean,
     val created: Instant,
+    val labels: List<String> = emptyList(),
+    val reviewers: List<Reviewer> = emptyList(),
+    /** The source branch can't be merged into the target without resolving conflicts. */
+    val hasConflicts: Boolean = false,
 )
 
-enum class Vote { APPROVED, APPROVED_WITH_SUGGESTIONS, NONE, WAITING_FOR_AUTHOR, REJECTED }
-
-data class Reviewer(val user: ReviewUser, val vote: Vote, val isRequired: Boolean)
 
 data class ReviewDetails(val summary: ReviewSummary, val description: String, val reviewers: List<Reviewer>)
 

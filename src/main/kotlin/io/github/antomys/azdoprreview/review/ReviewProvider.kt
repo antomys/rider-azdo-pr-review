@@ -36,6 +36,18 @@ interface ReviewProvider {
     /** Sets the current user's vote, adding them as a reviewer if needed. */
     suspend fun setVote(ref: ReviewRef, vote: Vote)
 
+    /** Adds [user] as an optional reviewer; existing reviewers are left as they are. */
+    suspend fun addReviewer(ref: ReviewRef, user: ReviewUser)
+
+    /** Merges the review into its target branch with the host's default options. */
+    suspend fun complete(ref: ReviewRef)
+
+    /** Closes the review without merging. */
+    suspend fun abandon(ref: ReviewRef)
+
+    /** The user's picture, or null if the host has none. */
+    suspend fun avatar(user: ReviewUser): ByteArray?
+
     /** Users to mention in [repo]'s reviews whose name or unique name [ReviewUser.matches] [query]. */
     suspend fun searchUsers(repo: RepoRef, query: String, limit: Int = 10): List<ReviewUser>
 

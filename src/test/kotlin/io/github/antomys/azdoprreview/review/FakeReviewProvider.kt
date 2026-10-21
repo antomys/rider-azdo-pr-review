@@ -54,6 +54,11 @@ class FakeReviewProvider(
         votes += vote
     }
 
+    override suspend fun addReviewer(ref: ReviewRef, user: ReviewUser): Unit = unused()
+    override suspend fun complete(ref: ReviewRef): Unit = unused()
+    override suspend fun abandon(ref: ReviewRef): Unit = unused()
+    override suspend fun avatar(user: ReviewUser): ByteArray? = null
+
     override suspend fun searchUsers(repo: RepoRef, query: String, limit: Int): List<ReviewUser> =
         searchFailure?.let { throw it } ?: users.filter { it.matches(query) }.take(limit)
     override suspend fun resolveUsers(ids: Collection<String>): Map<String, ReviewUser> = unused()

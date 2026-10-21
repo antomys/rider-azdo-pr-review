@@ -130,16 +130,39 @@ class PullRequestDetailsViewModelTest {
     }
 
     @Test
-    fun `a review with a comment posts the comment, then votes`() = runBlocking {
+    fun `submitting sends drafts in order, then the comment, then the vote`() = runBlocking {
         val provider = FakeReviewProvider(details = details, revisions = listOf(latest))
         val vm = PullRequestDetailsViewModel(this, ReviewTarget(provider, repo), summary)
         vm.refresh().join()
+        val anchor = ThreadAnchor("/a.cs", LineRange(Side.RIGHT, 3, 3))
+        vm.addDraft(anchor, null, "first")
+        val removed = vm.addDraft(null, null, "removed")
+        val edited = vm.addDraft(null, null, "second")
+        vm.deleteDraft(removed)
+        vm.editDraft(edited, "second, edited")
+        assertEquals(Vote.APPROVED_WITH_SUGGESTIONS, vm.suggestedVote())
 
-        vm.submitReview(Vote.APPROVED, "  ")
         vm.submitReview(Vote.WAITING_FOR_AUTHOR, "Please add tests")
 
-        assertEquals(listOf(null to "Please add tests"), provider.createdThreads)
-        assertEquals(listOf(Vote.APPROVED, Vote.WAITING_FOR_AUTHOR), provider.votes)
+        assertEquals(listOf(anchor to "first", null to "second, edited", null to "Please add tests"), provider.createdThreads)
+        assertEquals(listOf(Vote.WAITING_FOR_AUTHOR), provider.votes)
+        assertTrue(vm.drafts.value.isEmpty())
+    }
+
+    @Test
+    fun `a draft can be posted on its own, and a comment-only review doesn't vote`() = runBlocking {
+        val provider = FakeReviewProvider(details = details, revisions = listOf(latest))
+        val vm = PullRequestDetailsViewModel(this, ReviewTarget(provider, repo), summary)
+        vm.refresh().join()
+        val now = vm.addDraft(null, null, "now")
+        vm.addDraft(null, null, "later")
+
+        vm.postDraft(now)
+        assertEquals(listOf("later"), vm.drafts.value.map { it.body })
+        vm.submitReview(null, " ")
+
+        assertEquals(listOf("now", "later"), provider.createdThreads.map { it.second })
+        assertTrue(provider.votes.isEmpty())
     }
 
     @Test
@@ -234,5 +257,29 @@ class PullRequestDetailsViewModelTest {
             DiffSide("/old.md", "base") to DiffSide("/new.md", "src2"),
             PullRequestDetailsViewModel.diffSides(FileChange("/old.md", "/new.md", ChangeKind.RENAMED), latest),
         )
+    }
+
+    @Test
+    fun `comment navigation goes through threads in file order, then line order`() = runBlocking {
+        val changes = listOf(
+            FileChange("/src/b.cs", "/src/b.cs", ChangeKind.MODIFIED),
+            FileChange("/src/a.cs", "/src/a.cs", ChangeKind.MODIFIED),
+        )
+        val comment = ReviewComment(1, null, ReviewUser("u", "User"), "x", Instant.EPOCH, false)
+        fun thread(id: Int, path: String, line: Int?) =
+            ReviewThread(id, ThreadAnchor(path, line?.let { LineRange(Side.RIGHT, it, it) }), null, false, listOf(comment))
+        val threads = listOf(thread(1, "/src/a.cs", 5), thread(2, "/src/b.cs", 9), thread(3, "/src/a.cs", null), thread(4, "/src/a.cs", 2))
+        val provider = FakeReviewProvider(details = details, revisions = listOf(latest), changes = mapOf(2 to changes), threads = threads)
+        val vm = PullRequestDetailsViewModel(this, ReviewTarget(provider, repo), summary)
+        vm.refresh().join()
+        // Changes are sorted by path, so a.cs comes first.
+        val (a, b) = (vm.state.value as State.Loaded).changes
+
+        assertEquals(4, vm.adjacentThread(a, 1, forward = true)?.id)
+        assertEquals(2, vm.adjacentThread(a, 5, forward = true)?.id)
+        assertNull(vm.adjacentThread(b, 9, forward = true))
+        assertEquals(1, vm.adjacentThread(b, 9, forward = false)?.id)
+        assertEquals(3, vm.adjacentThread(a, 1, forward = false)?.id)
+        assertNull(vm.adjacentThread(a, 0, forward = false))
     }
 }

@@ -7,10 +7,11 @@ import io.github.antomys.azdoprreview.review.RepoRef
 import io.github.antomys.azdoprreview.review.ReviewFilter
 import io.github.antomys.azdoprreview.review.ReviewRef
 import io.github.antomys.azdoprreview.review.ReviewTarget
+import io.github.antomys.azdoprreview.review.ReviewUser
 import io.github.antomys.azdoprreview.review.Vote
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel
 import io.github.antomys.azdoprreview.toolwindow.PullRequestListViewModel
-import io.github.antomys.azdoprreview.toolwindow.QuickFilter
+import io.github.antomys.azdoprreview.toolwindow.ListFilters
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -32,9 +33,10 @@ class LiveSandboxTest {
     )
     private val target = ReviewTarget(provider, repo)
 
-    private fun list(filter: QuickFilter): List<Int> = runBlocking {
+    /** [filters] with the current user filled in as author or reviewer. */
+    private fun list(filters: (me: ReviewUser) -> ListFilters): List<Int> = runBlocking {
         val vm = PullRequestListViewModel(this) { target }
-        vm.quickFilter = filter
+        vm.setFilters(filters(provider.currentUser()))
         vm.refresh().join()
         val state = vm.state.value
         check(state is PullRequestListViewModel.State.Loaded) { "list failed: $state" }
@@ -52,10 +54,10 @@ class LiveSandboxTest {
 
     @Test
     fun `list filters match the sandbox inventory`() {
-        assertEquals(listOf(1, 2, 3, 4, 5, 6), list(QuickFilter.ALL))
-        assertEquals(listOf(1, 2, 3, 4, 5, 6), list(QuickFilter.CREATED_BY_ME))
+        assertEquals((1..9).toList(), list { ListFilters() })
+        assertEquals((1..9).toList(), list { ListFilters(author = it) })
         // reviewerId doesn't expand teams: the team-only PR 4 is not "assigned to me" yet (F2 adds the team union).
-        assertEquals(listOf(2, 3, 5), list(QuickFilter.ASSIGNED_TO_ME))
+        assertEquals(listOf(2, 3, 5, 7, 8), list { ListFilters(reviewer = it) })
     }
 
     @Test

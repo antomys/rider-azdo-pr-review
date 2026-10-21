@@ -16,5 +16,6 @@
                              displayName="Azure DevOps PR Review"
                              instance="io.github.antomys.azdoprreview.settings.AzureDevOpsConfigurable"/>
         <diff.DiffExtension implementation="io.github.antomys.azdoprreview.diff.ReviewDiffExtension"/>
+        <fileEditorProvider implementation="io.github.antomys.azdoprreview.timeline.TimelineEditorProvider"/>
     </extensions>
 </idea-plugin>

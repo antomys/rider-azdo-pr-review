@@ -61,7 +61,7 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         return ReviewDetails(
             summary = pr.toSummary(ref.repo),
             description = pr.description.orEmpty(),
-            reviewers = pr.reviewers.map { Reviewer(ReviewUser(it.id, it.displayName ?: it.id, it.uniqueName), voteOf(it.vote), it.isRequired) },
+            reviewers = pr.reviewers.map { it.toReviewer() },
         )
     }
 
@@ -148,6 +148,31 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
      * Team members of the project, matched on any word of their name, plus a Graph subject query, which only matches the start
      * of display names (a preview API). Either source may be unavailable for the PAT's scopes; the other is still used.
      */
+    override suspend fun addReviewer(ref: ReviewRef, user: ReviewUser) {
+        val reviewers = get<GitPullRequestDto>(url(client.orgUrl, prPath(ref), API)).reviewers
+        if (reviewers.any { it.id == user.id }) return
+        send<NewReviewerDto, ReviewerDto>("PUT", url(client.orgUrl, prPath(ref) + "/reviewers/${user.id}", API), NewReviewerDto())
+    }
+
+    /** Completing needs the source commit the user saw, so a push made meanwhile isn't merged unseen. */
+    override suspend fun complete(ref: ReviewRef) {
+        val pr = get<GitPullRequestDto>(url(client.orgUrl, prPath(ref), API))
+        val commit = pr.lastMergeSourceCommit ?: throw IllegalStateException("The pull request has no source commit to merge")
+        send<PullRequestStatusUpdateDto, GitPullRequestDto>(
+            "PATCH", url(client.orgUrl, prPath(ref), API), PullRequestStatusUpdateDto("completed", commit),
+        )
+    }
+
+    override suspend fun abandon(ref: ReviewRef) {
+        send<PullRequestStatusUpdateDto, GitPullRequestDto>("PATCH", url(client.orgUrl, prPath(ref), API), PullRequestStatusUpdateDto("abandoned"))
+    }
+
+    override suspend fun avatar(user: ReviewUser): ByteArray? = try {
+        client.send("GET", url(client.orgUrl, "/_api/_common/identityImage", "id" to user.id), accept = "image/png")
+    } catch (e: AzureDevOpsException) {
+        if (e.status == 404) null else throw e
+    }
+
     override suspend fun searchUsers(repo: RepoRef, query: String, limit: Int): List<ReviewUser> {
         val members = try {
             teamMembers(repo.project).filter { it.matches(query) }
@@ -239,7 +264,12 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         },
         isDraft = isDraft,
         created = Instant.parse(creationDate),
+        labels = labels.orEmpty().filter { it.active }.map { it.name },
+        reviewers = reviewers.map { it.toReviewer() },
+        hasConflicts = mergeStatus == "conflicts",
     )
+
+    private fun ReviewerDto.toReviewer() = Reviewer(ReviewUser(id, displayName ?: id, uniqueName), voteOf(vote), isRequired)
 
     private fun ThreadDto.toThread(mentioned: Map<String, ReviewUser>) = ReviewThread(
         id = id,

@@ -34,7 +34,17 @@ data class GitPullRequestDto(
     val targetRefName: String,
     val isDraft: Boolean = false,
     val reviewers: List<ReviewerDto> = emptyList(),
+    val labels: List<LabelDto>? = null,
+    /** "succeeded", "conflicts", "queued", ... */
+    val mergeStatus: String? = null,
+    val lastMergeSourceCommit: CommitRefDto? = null,
 )
+
+@Serializable
+data class LabelDto(val name: String, val active: Boolean = true)
+
+@Serializable
+data class PullRequestStatusUpdateDto(val status: String, val lastMergeSourceCommit: CommitRefDto? = null)
 
 @Serializable
 data class CommitRefDto(val commitId: String)
@@ -124,6 +134,9 @@ data class ThreadStatusUpdateDto(val status: String)
 
 @Serializable
 data class ReviewerVoteDto(val vote: Int, val isRequired: Boolean)
+
+@Serializable
+data class NewReviewerDto(val vote: Int = 0, val isRequired: Boolean = false)
 
 @Serializable
 data class CommentUpdateDto(val content: String)

@@ -59,6 +59,51 @@ class AzureDevOpsProviderTest {
     }
 
     @Test
+    fun `maps labels, reviewers and merge conflicts in the list`() = runBlocking {
+        val pr = Json.parseToJsonElement(fixture("pull-request.json")).jsonObject
+        val extra = Json.parseToJsonElement(
+            """{"mergeStatus":"conflicts","labels":[{"name":"ui","active":true},{"name":"old","active":false}],
+               "reviewers":[{"id":"$USER_ID","displayName":"Test User","vote":-10,"isRequired":true}]}""",
+        ).jsonObject
+        server.on("GET", "$repoPath/pullrequests", """{"value":[${kotlinx.serialization.json.JsonObject(pr + extra)}],"count":1}""")
+        val summary = provider.listReviews(repo, ReviewFilter()).single()
+
+        assertEquals(listOf("ui"), summary.labels)
+        assertTrue(summary.hasConflicts)
+        assertEquals(listOf(Vote.REJECTED), summary.reviewers.map { it.vote })
+        assertTrue(summary.reviewers.single().isRequired)
+    }
+
+    @Test
+    fun `adds a reviewer only when they aren't one yet`() = runBlocking {
+        val pr = Json.parseToJsonElement(fixture("pull-request.json")).jsonObject
+        val withReviewer = kotlinx.serialization.json.JsonObject(
+            pr + ("reviewers" to Json.parseToJsonElement("""[{"id":"$USER_ID","vote":5}]""")),
+        )
+        server.on("GET", prPath, Reply(200, pr.toString().toByteArray()), Reply(200, withReviewer.toString().toByteArray()))
+        server.on("PUT", "$prPath/reviewers/$USER_ID", """{"id":"$USER_ID","vote":0}""")
+        val user = io.github.antomys.azdoprreview.review.ReviewUser(USER_ID, "Test User")
+        provider.addReviewer(ref, user)
+        provider.addReviewer(ref, user)
+
+        assertJson("""{"vote":0,"isRequired":false}""", server.requests("PUT", "$prPath/reviewers/$USER_ID").single().body)
+    }
+
+    @Test
+    fun `completes with the last merge source commit and abandons`() = runBlocking {
+        server.on("GET", prPath, fixture("pull-request.json"))
+        server.on("PATCH", prPath, fixture("pull-request.json"))
+        provider.complete(ref)
+        provider.abandon(ref)
+
+        val commit = Json.parseToJsonElement(fixture("pull-request.json")).jsonObject
+            .getValue("lastMergeSourceCommit").jsonObject.getValue("commitId").toString()
+        val bodies = server.requests("PATCH", prPath).map { it.body }
+        assertJson("""{"status":"completed","lastMergeSourceCommit":{"commitId":$commit}}""", bodies[0])
+        assertJson("""{"status":"abandoned"}""", bodies[1])
+    }
+
+    @Test
     fun `maps iterations to revisions`() = runBlocking {
         server.on("GET", "$prPath/iterations", fixture("iterations.json"))
         val revisions = provider.listRevisions(ref)

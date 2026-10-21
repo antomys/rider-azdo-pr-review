@@ -49,6 +49,8 @@ class CommentField(
     private val scope: CoroutineScope,
     placeholder: String,
     private val mentions: Mentions,
+    /** Lines shown while the field is empty; it grows with the text up to twelve. */
+    private val minLines: Int = 3,
 ) : JPanel(BorderLayout()) {
     var onSubmit: (() -> Unit)? = null
     var onCancel: (() -> Unit)? = null
@@ -93,13 +95,23 @@ class CommentField(
 
     /** The text with chosen mentions in the provider's format. */
     val text: String
-        get() = chosen.entries.sortedByDescending { it.key.length }
-            .fold(input.text.trim()) { text, (name, user) -> text.replace("@$name", mentions.encode(user)) }
+        get() = encode(displayText, chosen, mentions.encode)
 
-    fun clear() {
-        input.text = ""
+    /** The text as typed, mentions as `@Name`. */
+    val displayText: String
+        get() = input.text.trim()
+
+    /** The people chosen from the popup, by the name shown for them. */
+    val mentioned: Map<String, ReviewUser>
+        get() = chosen.toMap()
+
+    fun setText(text: String, mentioned: Map<String, ReviewUser> = emptyMap()) {
+        input.text = text
         chosen.clear()
+        chosen.putAll(mentioned)
     }
+
+    fun clear() = setText("")
 
     fun focus() {
         input.requestFocusInWindow()
@@ -110,11 +122,10 @@ class CommentField(
         input.isEnabled = enabled
     }
 
-    /** At least three lines tall, growing with the text up to twelve. */
     override fun getPreferredSize(): Dimension {
         val preferred = super.getPreferredSize()
         val line = input.getFontMetrics(input.font).height
-        return Dimension(preferred.width, preferred.height.coerceIn(line * 3 + JBUI.scale(12), line * 12))
+        return Dimension(preferred.width, preferred.height.coerceIn(line * minLines + JBUI.scale(12), line * 12))
     }
 
     private fun shortcut(shortcuts: ShortcutSet, handler: () -> (() -> Unit)?) {
@@ -177,6 +188,10 @@ class CommentField(
         private fun isNameChar(c: Char) = c.isLetterOrDigit() || c == '.' || c == '_' || c == '-'
     }
 }
+
+/** [text] with each `@Name` of [mentioned] written as the provider's mention. */
+fun encode(text: String, mentioned: Map<String, ReviewUser>, encode: (ReviewUser) -> String): String =
+    mentioned.entries.sortedByDescending { it.key.length }.fold(text) { result, (name, user) -> result.replace("@$name", encode(user)) }
 
 /** Matches people the way [ReviewUser.matches] does: the platform's matchers only match a later word for a single letter. */
 private class UserMatcher(prefix: String) : PrefixMatcher(prefix) {
