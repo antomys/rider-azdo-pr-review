@@ -63,6 +63,8 @@ class AzureDevOpsConfigurable(project: Project) : BoundConfigurable(DISPLAY_NAME
                 row("") { status = label("").applyToComponent { plainText() } }
                 row("Exclude files:") {
                     textArea().bindText(ai::excludes).rows(4).columns(COLUMNS_MEDIUM)
+                        // Setting the text leaves the caret at the end, which would scroll past the first globs.
+                        .also { cell -> cell.onReset { cell.component.caretPosition = 0 } }
                         .comment("Never sent. Globs separated by commas or new lines; a glob with / matches the path, otherwise the file name.")
                 }
                 row("Extra instructions:") { textArea().bindText(ai::instructions).rows(3).columns(COLUMNS_LARGE) }

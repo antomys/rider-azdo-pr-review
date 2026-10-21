@@ -53,6 +53,7 @@ import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListCellRenderer
 import javax.swing.ListSelectionModel
+import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 
@@ -120,6 +121,14 @@ class PullRequestListPanel(
                 notice.isVisible = it != null
             }
         }
+        // The selection popup only opens on a selected row, so a right click selects its row first (added before it).
+        list.addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                if (!SwingUtilities.isRightMouseButton(e) && !e.isPopupTrigger) return
+                val index = list.locationToIndex(e.point)
+                if (index >= 0 && list.getCellBounds(index, index)?.contains(e.point) == true) list.selectedIndex = index
+            }
+        })
         PopupHandler.installSelectionListPopup(list, DefaultActionGroup(markAction(reviewed = true), markAction(reviewed = false)), "AzureDevOpsPrList")
     }
 
@@ -327,7 +336,10 @@ class PullRequestListPanel(
         private val right = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply { isOpaque = false }
         private val panel = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
             border = JBUI.Borders.empty(5, 8)
-            add(JPanel(VerticalLayout(JBUI.scale(2))).apply {
+            // No preferred width of its own: long text is cut with "…" instead of widening the row past the list.
+            add(object : JPanel(VerticalLayout(JBUI.scale(2))) {
+                override fun getPreferredSize() = super.getPreferredSize().apply { width = 0 }
+            }.apply {
                 isOpaque = false
                 add(title)
                 add(details)
