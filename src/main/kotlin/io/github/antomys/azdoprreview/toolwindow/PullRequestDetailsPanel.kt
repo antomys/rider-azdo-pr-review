@@ -26,10 +26,12 @@ import com.intellij.util.text.DateFormatUtil
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import io.github.antomys.azdoprreview.ai.AiReviewFlow
 import io.github.antomys.azdoprreview.diff.ReviewDiff
 import io.github.antomys.azdoprreview.review.ReviewState
 import io.github.antomys.azdoprreview.review.ReviewUser
 import io.github.antomys.azdoprreview.review.Vote
+import io.github.antomys.azdoprreview.settings.AiReviewSettings
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.State
 import io.github.antomys.azdoprreview.ui.Avatars
 import io.github.antomys.azdoprreview.ui.MarkdownPane
@@ -268,6 +270,10 @@ class PullRequestDetailsPanel(
                     if (ok) send { vm.abandon() }
                 },
             )
+            if (AiReviewSettings.getInstance().enabled) {
+                group.addSeparator()
+                group.add(action("Review with AI…") { AiReviewFlow.start(project, vm, scope) })
+            }
             JBPopupFactory.getInstance()
                 .createActionGroupPopup(null, group, DataContext.EMPTY_CONTEXT, JBPopupFactory.ActionSelectionAid.MNEMONICS, true)
                 .show(PopupShowOptions.aboveComponent(anchor))
