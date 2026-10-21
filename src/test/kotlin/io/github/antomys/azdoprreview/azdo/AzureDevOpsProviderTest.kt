@@ -12,6 +12,7 @@ import io.github.antomys.azdoprreview.review.ReviewState
 import io.github.antomys.azdoprreview.review.Revision
 import io.github.antomys.azdoprreview.review.Side
 import io.github.antomys.azdoprreview.review.ThreadAnchor
+import io.github.antomys.azdoprreview.review.Vote
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -58,6 +59,51 @@ class AzureDevOpsProviderTest {
     }
 
     @Test
+    fun `maps labels, reviewers and merge conflicts in the list`() = runBlocking {
+        val pr = Json.parseToJsonElement(fixture("pull-request.json")).jsonObject
+        val extra = Json.parseToJsonElement(
+            """{"mergeStatus":"conflicts","labels":[{"name":"ui","active":true},{"name":"old","active":false}],
+               "reviewers":[{"id":"$USER_ID","displayName":"Test User","vote":-10,"isRequired":true}]}""",
+        ).jsonObject
+        server.on("GET", "$repoPath/pullrequests", """{"value":[${kotlinx.serialization.json.JsonObject(pr + extra)}],"count":1}""")
+        val summary = provider.listReviews(repo, ReviewFilter()).single()
+
+        assertEquals(listOf("ui"), summary.labels)
+        assertTrue(summary.hasConflicts)
+        assertEquals(listOf(Vote.REJECTED), summary.reviewers.map { it.vote })
+        assertTrue(summary.reviewers.single().isRequired)
+    }
+
+    @Test
+    fun `adds a reviewer only when they aren't one yet`() = runBlocking {
+        val pr = Json.parseToJsonElement(fixture("pull-request.json")).jsonObject
+        val withReviewer = kotlinx.serialization.json.JsonObject(
+            pr + ("reviewers" to Json.parseToJsonElement("""[{"id":"$USER_ID","vote":5}]""")),
+        )
+        server.on("GET", prPath, Reply(200, pr.toString().toByteArray()), Reply(200, withReviewer.toString().toByteArray()))
+        server.on("PUT", "$prPath/reviewers/$USER_ID", """{"id":"$USER_ID","vote":0}""")
+        val user = io.github.antomys.azdoprreview.review.ReviewUser(USER_ID, "Test User")
+        provider.addReviewer(ref, user)
+        provider.addReviewer(ref, user)
+
+        assertJson("""{"vote":0,"isRequired":false}""", server.requests("PUT", "$prPath/reviewers/$USER_ID").single().body)
+    }
+
+    @Test
+    fun `completes with the last merge source commit and abandons`() = runBlocking {
+        server.on("GET", prPath, fixture("pull-request.json"))
+        server.on("PATCH", prPath, fixture("pull-request.json"))
+        provider.complete(ref)
+        provider.abandon(ref)
+
+        val commit = Json.parseToJsonElement(fixture("pull-request.json")).jsonObject
+            .getValue("lastMergeSourceCommit").jsonObject.getValue("commitId").toString()
+        val bodies = server.requests("PATCH", prPath).map { it.body }
+        assertJson("""{"status":"completed","lastMergeSourceCommit":{"commitId":$commit}}""", bodies[0])
+        assertJson("""{"status":"abandoned"}""", bodies[1])
+    }
+
+    @Test
     fun `maps iterations to revisions`() = runBlocking {
         server.on("GET", "$prPath/iterations", fixture("iterations.json"))
         val revisions = provider.listRevisions(ref)
@@ -73,10 +119,11 @@ class AzureDevOpsProviderTest {
 
         assertEquals(
             setOf(
-                FileChange("/docs/notes.md", "/docs/NOTES.md", ChangeKind.RENAMED),
-                FileChange("/src/Calculator.cs", "/src/Calculator.cs", ChangeKind.MODIFIED),
-                FileChange(null, "/src/Greeter.cs", ChangeKind.ADDED),
-                FileChange("/src/Legacy.cs", null, ChangeKind.DELETED),
+                FileChange("/docs/notes.md", "/docs/NOTES.md", ChangeKind.RENAMED, "C28CDA24B94E0741E17B182A52745DB344A5704B"),
+                FileChange("/src/Calculator.cs", "/src/Calculator.cs", ChangeKind.MODIFIED, "927A82A1BD0C66CF73D9A2D22AB2EDEB3B586D76"),
+                FileChange(null, "/src/Greeter.cs", ChangeKind.ADDED, "9F382D05433B4212FE3C8776A8B4413114DAEC7B"),
+                // A deleted file's version is the blob it had before the delete.
+                FileChange("/src/Legacy.cs", null, ChangeKind.DELETED, "EBF54586E840B64702D1A4F31D10AD18F5447177"),
             ),
             changes.toSet(),
         )
@@ -97,6 +144,7 @@ class AzureDevOpsProviderTest {
     @Test
     fun `maps every thread position type, statuses, replies and system threads`() = runBlocking {
         server.on("GET", "$prPath/threads", fixture("threads.json"))
+        server.on("GET", "/vssps/_apis/identities", fixture("identities.json"))
         val threads = provider.listThreads(ref).associateBy { it.id }
 
         assertEquals(6, threads.size)
@@ -117,6 +165,43 @@ class AzureDevOpsProviderTest {
         assertEquals(ThreadAnchor("/src/Greeter.cs", null), threads.getValue(5).anchor)
         assertNull(threads.getValue(6).anchor)
         assertFalse(threads.values.any { it.status?.id == "unknown" })
+    }
+
+    @Test
+    fun `tracks thread positions to a revision and shows mentions as names`() = runBlocking {
+        server.on("GET", "$prPath/threads", fixture("threads.json"))
+        server.on("GET", "/vssps/_apis/identities", fixture("identities.json"))
+        val comment = provider.listThreads(ref, revision2).single { it.id == 2 }.comments.first()
+
+        val query = server.requests("GET", "$prPath/threads").single().query.orEmpty()
+        assertTrue("%24iteration=2" in query && "%24baseIteration=0" in query, query)
+        assertTrue("@<$USER_ID>" in comment.body)
+        assertTrue("@Test User" in comment.displayBody, comment.displayBody)
+    }
+
+    @Test
+    fun `still lists threads when mention names can't be looked up`() = runBlocking {
+        server.on("GET", "$prPath/threads", fixture("threads.json"))
+        server.on("GET", "/vssps/_apis/identities", """{"message":"forbidden"}""", status = 403)
+        val comment = provider.listThreads(ref).single { it.id == 2 }.comments.first()
+        assertEquals(comment.body, comment.displayBody)
+    }
+
+    @Test
+    fun `votes as the current user, keeping a required reviewer required`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/connectionData", fixture("connection-data.json"))
+        val pr = Json.parseToJsonElement(fixture("pull-request.json")).jsonObject
+        val asRequired = kotlinx.serialization.json.JsonObject(
+            pr + ("reviewers" to Json.parseToJsonElement("""[{"id":"$USER_ID","vote":0,"isRequired":true}]""")),
+        )
+        server.on("GET", prPath, Reply(200, pr.toString().toByteArray()), Reply(200, asRequired.toString().toByteArray()))
+        server.on("PUT", "$prPath/reviewers/$USER_ID", """{"id":"$USER_ID","vote":5}""")
+        provider.setVote(ref, Vote.APPROVED_WITH_SUGGESTIONS)
+        provider.setVote(ref, Vote.REJECTED)
+
+        val bodies = server.requests("PUT", "$prPath/reviewers/$USER_ID").map { it.body }
+        assertJson("""{"vote":5,"isRequired":false}""", bodies[0])
+        assertJson("""{"vote":-10,"isRequired":true}""", bodies[1])
     }
 
     @Test
@@ -187,17 +272,51 @@ class AzureDevOpsProviderTest {
     }
 
     @Test
-    fun `searches users by prefix and maps them to identity ids for mentions`() = runBlocking {
+    fun `searches team members by any name word and the graph by prefix, without duplicates`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams", fixture("teams.json"))
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams/44444444-4444-4444-4444-444444444444/members", fixture("team-members.json"))
         server.on("POST", "/vssps/_apis/graph/subjectquery", fixture("subject-query.json"))
         server.on("GET", "/vssps/_apis/graph/storagekeys/aad.dGVzdC11c2Vy", fixture("storage-key.json"))
-        val user = provider.searchUsers("Tes").single()
 
+        // "user" starts the second word of "Test User": only team members match it that way.
+        val user = provider.searchUsers(repo, "user").single()
         assertEquals(USER_ID, user.id)
-        assertEquals("Test User", user.displayName)
         assertEquals("test.user@example.com", user.uniqueName)
         assertEquals("@<$USER_ID>", provider.encodeMention(user))
-        assertJson("""{"query":"Tes","subjectKind":["User"]}""", server.requests.first().body)
-        assertTrue(server.requests.all { "api-version=7.1-preview.1" in it.query.orEmpty() })
+        assertJson("""{"query":"user","subjectKind":["User"]}""", server.requests("POST", "/vssps/_apis/graph/subjectquery").single().body)
+        assertTrue(server.requests("GET", "/vssps/_apis/graph/storagekeys/aad.dGVzdC11c2Vy").all { "api-version=7.1-preview.1" in it.query.orEmpty() })
+
+        assertEquals(listOf("Test User", "Other Person"), provider.searchUsers(repo, "").map { it.displayName })
+        assertEquals(1, server.requests("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams").size)
+    }
+
+    @Test
+    fun `treats a null graph result as no matches`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams", fixture("teams.json"))
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams/44444444-4444-4444-4444-444444444444/members", fixture("team-members.json"))
+        server.on("POST", "/vssps/_apis/graph/subjectquery", """{"count":0,"value":null}""")
+        assertEquals(listOf("Other Person"), provider.searchUsers(repo, "pe").map { it.displayName })
+    }
+
+    @Test
+    fun `still searches the graph when team members can't be listed`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/projects/test-pr-reviewer/teams", """{"message":"denied"}""", status = 403)
+        server.on("POST", "/vssps/_apis/graph/subjectquery", fixture("subject-query.json"))
+        server.on("GET", "/vssps/_apis/graph/storagekeys/aad.dGVzdC11c2Vy", fixture("storage-key.json"))
+        assertEquals(listOf(USER_ID), provider.searchUsers(repo, "Tes").map { it.id })
+    }
+
+    @Test
+    fun `reports a comment's edit time only when its text changed after publishing`() = runBlocking {
+        val edited = thread(2).replace(
+            """"lastContentUpdatedDate":"2026-10-20T14:13:45.653Z"""", """"lastContentUpdatedDate":"2026-10-20T14:20:00Z"""",
+        )
+        server.on("GET", "$prPath/threads", """{"value":[$edited],"count":1}""")
+        server.on("GET", "/vssps/_apis/identities", fixture("identities.json"))
+        val comments = provider.listThreads(ref).single().comments
+
+        assertNull(comments[0].updated)
+        assertEquals(java.time.Instant.parse("2026-10-20T14:20:00Z"), comments[1].updated)
     }
 
     @Test

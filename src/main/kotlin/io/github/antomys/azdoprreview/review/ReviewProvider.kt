@@ -19,7 +19,8 @@ interface ReviewProvider {
     /** File bytes at [commit], or null if the file doesn't exist there. */
     suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray?
 
-    suspend fun listThreads(ref: ReviewRef): List<ReviewThread>
+    /** Threads with positions moved to [revision] when given, so they line up with that revision's diff. */
+    suspend fun listThreads(ref: ReviewRef, revision: Revision? = null): List<ReviewThread>
 
     /** Starts a thread on [anchor] as seen in [revision], or a review-level thread when [anchor] is null. */
     suspend fun createThread(ref: ReviewRef, revision: Revision, anchor: ThreadAnchor?, body: String): ReviewThread
@@ -32,7 +33,23 @@ interface ReviewProvider {
 
     suspend fun setThreadStatus(ref: ReviewRef, threadId: Int, status: ThreadStatus): ReviewThread
 
-    suspend fun searchUsers(query: String, limit: Int = 10): List<ReviewUser>
+    /** Sets the current user's vote, adding them as a reviewer if needed. */
+    suspend fun setVote(ref: ReviewRef, vote: Vote)
+
+    /** Adds [user] as an optional reviewer; existing reviewers are left as they are. */
+    suspend fun addReviewer(ref: ReviewRef, user: ReviewUser)
+
+    /** Merges the review into its target branch with the host's default options. */
+    suspend fun complete(ref: ReviewRef)
+
+    /** Closes the review without merging. */
+    suspend fun abandon(ref: ReviewRef)
+
+    /** The user's picture, or null if the host has none. */
+    suspend fun avatar(user: ReviewUser): ByteArray?
+
+    /** Users to mention in [repo]'s reviews whose name or unique name [ReviewUser.matches] [query]. */
+    suspend fun searchUsers(repo: RepoRef, query: String, limit: Int = 10): List<ReviewUser>
 
     /** Looks up users by id, e.g. to show names for mentions stored as ids. */
     suspend fun resolveUsers(ids: Collection<String>): Map<String, ReviewUser>

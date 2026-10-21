@@ -35,6 +35,7 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
     /** Request defaults (commentType, subjectKind, ...) are sent; null fields are left out. */
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
     private val users = ConcurrentHashMap<String, ReviewUser>()
+    private val teamMembers = ConcurrentHashMap<String, List<ReviewUser>>()
 
     /** changeTrackingId by file path, per review and iteration; needed to anchor new threads. */
     private val trackingIds = ConcurrentHashMap<Pair<ReviewRef, Int>, Map<String, Int>>()
@@ -60,7 +61,7 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         return ReviewDetails(
             summary = pr.toSummary(ref.repo),
             description = pr.description.orEmpty(),
-            reviewers = pr.reviewers.map { Reviewer(ReviewUser(it.id, it.displayName ?: it.id, it.uniqueName), voteOf(it.vote), it.isRequired) },
+            reviewers = pr.reviewers.map { it.toReviewer() },
         )
     }
 
@@ -88,10 +89,20 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         if (e.status == 404) null else throw e
     }
 
-    override suspend fun listThreads(ref: ReviewRef): List<ReviewThread> =
-        get<ListDto<ThreadDto>>(url(client.orgUrl, prPath(ref) + "/threads", API)).value
-            .filterNot { it.isDeleted }
-            .map { it.toThread() }
+    /** `$iteration` with `$baseIteration=0` makes the service track positions to that iteration's diff against the merge base. */
+    override suspend fun listThreads(ref: ReviewRef, revision: Revision?): List<ReviewThread> {
+        val threads = get<ListDto<ThreadDto>>(
+            url(client.orgUrl, prPath(ref) + "/threads", "\$iteration" to revision?.id, "\$baseIteration" to revision?.let { 0 }, API),
+        ).value.filterNot { it.isDeleted }
+        val ids = threads.flatMap { t -> t.comments.flatMap { AzureDevOpsMentions.ids(it.content.orEmpty()) } }.toSet()
+        // Names are cosmetic: without Identity (Read) scope, mentions stay as ids rather than failing the threads.
+        val mentioned = try {
+            resolveUsers(ids)
+        } catch (e: AzureDevOpsException) {
+            emptyMap()
+        }
+        return threads.map { it.toThread(mentioned) }
+    }
 
     override suspend fun createThread(ref: ReviewRef, revision: Revision, anchor: ThreadAnchor?, body: String): ReviewThread {
         val thread = NewThreadDto(
@@ -102,7 +113,7 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
                 PullRequestThreadContextDto(trackingId(ref, revision.id, it.path), IterationContextDto(revision.id, revision.id))
             },
         )
-        return send<NewThreadDto, ThreadDto>("POST", url(client.orgUrl, prPath(ref) + "/threads", API), thread).toThread()
+        return send<NewThreadDto, ThreadDto>("POST", url(client.orgUrl, prPath(ref) + "/threads", API), thread).toThread(emptyMap())
     }
 
     override suspend fun reply(ref: ReviewRef, threadId: Int, parentCommentId: Int, body: String): ReviewComment =
@@ -122,17 +133,74 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
     override suspend fun setThreadStatus(ref: ReviewRef, threadId: Int, status: ThreadStatus): ReviewThread =
         send<ThreadStatusUpdateDto, ThreadDto>(
             "PATCH", url(client.orgUrl, prPath(ref) + "/threads/$threadId", API), ThreadStatusUpdateDto(status.id),
-        ).toThread()
+        ).toThread(emptyMap())
+
+    /** The PUT replaces the reviewer entry, so it repeats whether the user is required: left out, a required reviewer becomes optional. */
+    override suspend fun setVote(ref: ReviewRef, vote: Vote) {
+        val me = currentUser().id
+        val isRequired = get<GitPullRequestDto>(url(client.orgUrl, prPath(ref), API)).reviewers.firstOrNull { it.id == me }?.isRequired == true
+        send<ReviewerVoteDto, ReviewerDto>(
+            "PUT", url(client.orgUrl, prPath(ref) + "/reviewers/$me", API), ReviewerVoteDto(vote.toAzdo(), isRequired),
+        )
+    }
 
     /**
-     * Graph subject query is the only identity search verified to match name prefixes (it is a preview API).
-     * Its descriptors map to the identity ids used in mentions through Graph storage keys.
+     * Team members of the project, matched on any word of their name, plus a Graph subject query, which only matches the start
+     * of display names (a preview API). Either source may be unavailable for the PAT's scopes; the other is still used.
      */
-    override suspend fun searchUsers(query: String, limit: Int): List<ReviewUser> {
-        if (query.isBlank()) return emptyList()
-        val subjects = send<SubjectQueryDto, ListDto<GraphSubjectDto>>(
+    override suspend fun addReviewer(ref: ReviewRef, user: ReviewUser) {
+        val reviewers = get<GitPullRequestDto>(url(client.orgUrl, prPath(ref), API)).reviewers
+        if (reviewers.any { it.id == user.id }) return
+        send<NewReviewerDto, ReviewerDto>("PUT", url(client.orgUrl, prPath(ref) + "/reviewers/${user.id}", API), NewReviewerDto())
+    }
+
+    /** Completing needs the source commit the user saw, so a push made meanwhile isn't merged unseen. */
+    override suspend fun complete(ref: ReviewRef) {
+        val pr = get<GitPullRequestDto>(url(client.orgUrl, prPath(ref), API))
+        val commit = pr.lastMergeSourceCommit ?: throw IllegalStateException("The pull request has no source commit to merge")
+        send<PullRequestStatusUpdateDto, GitPullRequestDto>(
+            "PATCH", url(client.orgUrl, prPath(ref), API), PullRequestStatusUpdateDto("completed", commit),
+        )
+    }
+
+    override suspend fun abandon(ref: ReviewRef) {
+        send<PullRequestStatusUpdateDto, GitPullRequestDto>("PATCH", url(client.orgUrl, prPath(ref), API), PullRequestStatusUpdateDto("abandoned"))
+    }
+
+    override suspend fun avatar(user: ReviewUser): ByteArray? = try {
+        client.send("GET", url(client.orgUrl, "/_api/_common/identityImage", "id" to user.id), accept = "image/png")
+    } catch (e: AzureDevOpsException) {
+        if (e.status == 404) null else throw e
+    }
+
+    override suspend fun searchUsers(repo: RepoRef, query: String, limit: Int): List<ReviewUser> {
+        val members = try {
+            teamMembers(repo.project).filter { it.matches(query) }
+        } catch (e: AzureDevOpsException) {
+            emptyList()
+        }
+        val subjects = try {
+            if (query.isBlank()) emptyList() else graphSearch(query, limit)
+        } catch (e: AzureDevOpsException) {
+            emptyList()
+        }
+        return (members + subjects).distinctBy { it.id }.take(limit)
+    }
+
+    private suspend fun teamMembers(project: String): List<ReviewUser> = teamMembers[project] ?: run {
+        val projectPath = "/_apis/projects/${encode(project)}/teams"
+        get<ListDto<TeamDto>>(url(client.orgUrl, projectPath, "\$top" to MAX_TEAMS, API)).value
+            .flatMap { team -> get<ListDto<TeamMemberDto>>(url(client.orgUrl, "$projectPath/${team.id}/members", "\$top" to MAX_TEAM_MEMBERS, API)).value }
+            .map { it.identity.toUser() }
+            .distinctBy { it.id }
+            .also { teamMembers[project] = it }
+    }
+
+    /** Graph descriptors map to the identity ids used in mentions through Graph storage keys. */
+    private suspend fun graphSearch(query: String, limit: Int): List<ReviewUser> {
+        val subjects = send<SubjectQueryDto, SubjectQueryResultDto>(
             "POST", url(client.identityUrl, "/_apis/graph/subjectquery", GRAPH_API), SubjectQueryDto(query),
-        ).value
+        ).value.orEmpty()
         return subjects.take(limit).map { subject ->
             val id = get<StorageKeyDto>(url(client.identityUrl, "/_apis/graph/storagekeys/${encode(subject.descriptor)}", GRAPH_API)).value
             ReviewUser(id, subject.displayName ?: id, subject.mailAddress ?: subject.principalName).also { users[id] = it }
@@ -196,23 +264,31 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         },
         isDraft = isDraft,
         created = Instant.parse(creationDate),
+        labels = labels.orEmpty().filter { it.active }.map { it.name },
+        reviewers = reviewers.map { it.toReviewer() },
+        hasConflicts = mergeStatus == "conflicts",
     )
 
-    private fun ThreadDto.toThread() = ReviewThread(
+    private fun ReviewerDto.toReviewer() = Reviewer(ReviewUser(id, displayName ?: id, uniqueName), voteOf(vote), isRequired)
+
+    private fun ThreadDto.toThread(mentioned: Map<String, ReviewUser>) = ReviewThread(
         id = id,
         anchor = threadContext?.toAnchor(),
         status = status?.let(::statusOf),
         isSystem = comments.firstOrNull()?.commentType == "system",
-        comments = comments.map { it.toComment() },
+        comments = comments.map { it.toComment(mentioned) },
     )
 
-    private fun CommentDto.toComment() = ReviewComment(
+    private fun CommentDto.toComment(mentioned: Map<String, ReviewUser> = emptyMap()) = ReviewComment(
         id = id,
         parentId = parentCommentId.takeIf { it != 0 },
         author = author.toUser(),
         body = content.orEmpty(),
         created = Instant.parse(publishedDate),
         isDeleted = isDeleted,
+        displayBody = AzureDevOpsMentions.render(content.orEmpty(), mentioned),
+        // Unedited comments report their publish time here.
+        updated = lastContentUpdatedDate?.let(Instant::parse)?.takeIf { it.isAfter(Instant.parse(publishedDate)) },
     )
 
     companion object {
@@ -220,6 +296,8 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         private val GRAPH_API = "api-version" to "7.1-preview.1"
         private const val HEADS = "refs/heads/"
         private const val MAX_CHANGES_PAGE = 2000
+        private const val MAX_TEAMS = 100
+        private const val MAX_TEAM_MEMBERS = 500
 
         /** Numeric values 1-6 map to these names in this order (verified against the service). */
         val STATUSES = listOf(
@@ -256,6 +334,14 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
             else -> Vote.NONE
         }
 
+        private fun Vote.toAzdo() = when (this) {
+            Vote.APPROVED -> 10
+            Vote.APPROVED_WITH_SUGGESTIONS -> 5
+            Vote.NONE -> 0
+            Vote.WAITING_FOR_AUTHOR -> -5
+            Vote.REJECTED -> -10
+        }
+
         private fun repoPath(repo: RepoRef) = "/${encode(repo.project)}/_apis/git/repositories/${encode(repo.repository)}"
 
         private fun prPath(ref: ReviewRef) = repoPath(ref.repo) + "/pullRequests/${ref.id}"
@@ -263,10 +349,10 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         private fun ChangeEntryDto.toFileChange(): FileChange {
             val types = changeType.split(",").map { it.trim() }
             return when {
-                "delete" in types -> FileChange(oldPath = originalPath ?: item.path, newPath = null, kind = ChangeKind.DELETED)
-                "add" in types -> FileChange(oldPath = null, newPath = item.path, kind = ChangeKind.ADDED)
-                "rename" in types -> FileChange(oldPath = originalPath, newPath = item.path, kind = ChangeKind.RENAMED)
-                else -> FileChange(oldPath = item.path, newPath = item.path, kind = ChangeKind.MODIFIED)
+                "delete" in types -> FileChange(originalPath ?: item.path, null, ChangeKind.DELETED, item.originalObjectId)
+                "add" in types -> FileChange(null, item.path, ChangeKind.ADDED, item.objectId)
+                "rename" in types -> FileChange(originalPath, item.path, ChangeKind.RENAMED, item.objectId)
+                else -> FileChange(item.path, item.path, ChangeKind.MODIFIED, item.objectId)
             }
         }
 

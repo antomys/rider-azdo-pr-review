@@ -3,9 +3,21 @@
     <name>Azure DevOps PR Review</name>
     <vendor>antomys</vendor>
     <description><![CDATA[
-        Review Azure DevOps pull requests in Rider: browse pull requests, read the diff,
-        and discuss changes in inline comment threads.
+        Review Azure DevOps pull requests in Rider.
+        <ul>
+            <li>Pull request list with search and state, author, reviewer and label filters</li>
+            <li>Timeline of the description, discussion and events</li>
+            <li>Side-by-side diff with inline threads, replies, resolve and reopen, and @mentions</li>
+            <li>Comments saved as drafts and sent together with Submit Review: approve, approve with suggestions,
+                request changes, reject, or comment only</li>
+            <li>Viewed-file marks, comment navigation, and request review, merge and close actions</li>
+        </ul>
+        Sign in with an Azure DevOps personal access token in Settings | Tools | Azure DevOps PR Review;
+        the token is kept in the IDE password storage.
     ]]></description>
+    <change-notes><![CDATA[
+        <b>0.1.0</b>: first release.
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
 
@@ -15,5 +27,7 @@
         <projectConfigurable id="io.github.antomys.azdoprreview.settings" parentId="tools"
                              displayName="Azure DevOps PR Review"
                              instance="io.github.antomys.azdoprreview.settings.AzureDevOpsConfigurable"/>
+        <diff.DiffExtension implementation="io.github.antomys.azdoprreview.diff.ReviewDiffExtension"/>
+        <fileEditorProvider implementation="io.github.antomys.azdoprreview.timeline.TimelineEditorProvider"/>
     </extensions>
 </idea-plugin>

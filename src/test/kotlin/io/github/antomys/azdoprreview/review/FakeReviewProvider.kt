@@ -10,8 +10,13 @@ class FakeReviewProvider(
     private val details: ReviewDetails? = null,
     private val revisions: List<Revision> = emptyList(),
     private val changes: Map<Int, List<FileChange>> = emptyMap(),
+    var threads: List<ReviewThread> = emptyList(),
+    private val users: List<ReviewUser> = emptyList(),
+    private val searchFailure: Exception? = null,
 ) : ReviewProvider {
     val filters = mutableListOf<ReviewFilter>()
+    val votes = mutableListOf<Vote>()
+    val createdThreads = mutableListOf<Pair<ThreadAnchor?, String>>()
 
     override val id = "fake"
     override val capabilities = AzureDevOpsProvider.CAPABILITIES
@@ -36,13 +41,26 @@ class FakeReviewProvider(
     override suspend fun listRevisions(ref: ReviewRef) = revisions
     override suspend fun listChanges(ref: ReviewRef, revision: Revision) = changes[revision.id].orEmpty()
     override suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray? = unused()
-    override suspend fun listThreads(ref: ReviewRef): List<ReviewThread> = unused()
-    override suspend fun createThread(ref: ReviewRef, revision: Revision, anchor: ThreadAnchor?, body: String): ReviewThread = unused()
+    override suspend fun listThreads(ref: ReviewRef, revision: Revision?): List<ReviewThread> = threads
+    override suspend fun createThread(ref: ReviewRef, revision: Revision, anchor: ThreadAnchor?, body: String): ReviewThread {
+        createdThreads += anchor to body
+        return ReviewThread(createdThreads.size, anchor, capabilities.openStatus, false, emptyList()).also { threads = threads + it }
+    }
     override suspend fun reply(ref: ReviewRef, threadId: Int, parentCommentId: Int, body: String): ReviewComment = unused()
     override suspend fun editComment(ref: ReviewRef, threadId: Int, commentId: Int, body: String): ReviewComment = unused()
     override suspend fun deleteComment(ref: ReviewRef, threadId: Int, commentId: Int): Unit = unused()
     override suspend fun setThreadStatus(ref: ReviewRef, threadId: Int, status: ThreadStatus): ReviewThread = unused()
-    override suspend fun searchUsers(query: String, limit: Int): List<ReviewUser> = unused()
+    override suspend fun setVote(ref: ReviewRef, vote: Vote) {
+        votes += vote
+    }
+
+    override suspend fun addReviewer(ref: ReviewRef, user: ReviewUser): Unit = unused()
+    override suspend fun complete(ref: ReviewRef): Unit = unused()
+    override suspend fun abandon(ref: ReviewRef): Unit = unused()
+    override suspend fun avatar(user: ReviewUser): ByteArray? = null
+
+    override suspend fun searchUsers(repo: RepoRef, query: String, limit: Int): List<ReviewUser> =
+        searchFailure?.let { throw it } ?: users.filter { it.matches(query) }.take(limit)
     override suspend fun resolveUsers(ids: Collection<String>): Map<String, ReviewUser> = unused()
 
     private fun unused(): Nothing = error("not used by this test")

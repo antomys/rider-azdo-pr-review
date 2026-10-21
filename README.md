@@ -2,7 +2,17 @@
 
 A JetBrains Rider plugin for reviewing Azure DevOps pull requests in the IDE: PR list, side-by-side diff, inline threads, replies, resolve and reopen, @mentions, and an optional AI-assisted review.
 
-Status: milestone 1. The core Azure DevOps client and review provider are done; there is no UI yet.
+Status: 0.1.0, for Rider 2026.2 (build 262).
+
+## Install
+
+1. Download `rider-azdo-pr-review-<version>.zip` from the repository's [Releases](https://github.com/antomys/rider-azdo-pr-review/releases).
+2. In Rider: **Settings | Plugins | ⚙ | Install Plugin from Disk…**, choose the zip, and restart Rider.
+3. In **Settings | Tools | Azure DevOps PR Review**, enter the organization, a personal access token
+   (scopes: Code Read & write, Identity Read, Graph Read), the project and the repository.
+4. Open the **Azure DevOps PR Review** tool window.
+
+To update, install the newer zip the same way.
 
 - [Plan and specification](docs/plan.md)
 - [Risks](docs/risks.md)
