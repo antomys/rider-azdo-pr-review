@@ -152,7 +152,7 @@ class ThreadPanel(
         // Name, then the time, which shortens rather than disappears when the thread is narrow, then the status.
         val header = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
             isOpaque = false
-            add(JBLabel(comment.author.displayName, avatars.icon(comment.author, AVATAR_SIZE, this@ThreadPanel), SwingConstants.LEADING).apply {
+            add(JBLabel(comment.author.displayName, avatars.icon(comment.author, AVATAR_SIZE, this@ThreadPanel), SwingConstants.LEADING).plainText().apply {
                 font = JBFont.label().asBold()
                 textColor?.let { foreground = it }
             }, BorderLayout.WEST)

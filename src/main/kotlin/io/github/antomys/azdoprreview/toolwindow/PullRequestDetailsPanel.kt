@@ -14,6 +14,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.PopupShowOptions
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.RoundedLineBorder
 import com.intellij.ui.ScrollPaneFactory
@@ -33,6 +34,7 @@ import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.Sta
 import io.github.antomys.azdoprreview.ui.Avatars
 import io.github.antomys.azdoprreview.ui.MarkdownPane
 import io.github.antomys.azdoprreview.ui.VoteIcons
+import io.github.antomys.azdoprreview.ui.plainText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -126,10 +128,10 @@ class PullRequestDetailsPanel(
                 header.add(JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
                     isOpaque = false
                     add(JBLabel("Changes").apply { font = JBFont.label().asBold() }, BorderLayout.WEST)
-                    add(JBLabel("${summary.sourceBranch} → ${summary.targetBranch}", AllIcons.Vcs.Branch, SwingConstants.RIGHT).apply {
+                    add(JBLabel("${summary.sourceBranch} → ${summary.targetBranch}", AllIcons.Vcs.Branch, SwingConstants.RIGHT).plainText().apply {
                         horizontalAlignment = SwingConstants.RIGHT
                         foreground = UIUtil.getContextHelpForeground()
-                        toolTipText = "${summary.sourceBranch} into ${summary.targetBranch}"
+                        toolTipText = "<html>" + StringUtil.escapeXmlEntities("${summary.sourceBranch} into ${summary.targetBranch}")
                     }, BorderLayout.CENTER)
                 })
                 header.add(ActionLink(if (showDetails) "Hide details" else "Show details") {
@@ -155,7 +157,7 @@ class PullRequestDetailsPanel(
                 add(JBLabel(
                     "${summary.author.displayName} opened ${DateFormatUtil.formatPrettyDateTime(summary.created.toEpochMilli())}",
                     avatars.icon(summary.author, AVATAR_SIZE, this), SwingConstants.LEADING,
-                ).apply { foreground = UIUtil.getContextHelpForeground() })
+                ).plainText().apply { foreground = UIUtil.getContextHelpForeground() })
             })
             if (state.details.description.isBlank()) {
                 add(JBLabel("No description").apply { foreground = UIUtil.getContextHelpForeground() })
@@ -167,7 +169,7 @@ class PullRequestDetailsPanel(
             state.details.reviewers.forEach { reviewer ->
                 add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply {
                     isOpaque = false
-                    add(JBLabel(reviewer.user.displayName + if (reviewer.user.id == state.me.id) " (you)" else "", avatars.icon(reviewer.user, AVATAR_SIZE, this), SwingConstants.LEADING))
+                    add(JBLabel(reviewer.user.displayName + if (reviewer.user.id == state.me.id) " (you)" else "", avatars.icon(reviewer.user, AVATAR_SIZE, this), SwingConstants.LEADING).plainText())
                     VoteIcons.of(reviewer.vote)?.let { add(JBLabel(it)) }
                     add(JBLabel(listOfNotNull(VoteIcons.NAMES[reviewer.vote], "required".takeIf { reviewer.isRequired }).joinToString(" · ")).apply {
                         foreground = UIUtil.getContextHelpForeground()
