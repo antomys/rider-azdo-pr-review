@@ -13,6 +13,8 @@ class FakeReviewProvider(
     var threads: List<ReviewThread> = emptyList(),
     private val users: List<ReviewUser> = emptyList(),
     private val searchFailure: Exception? = null,
+    /** File bytes by "<commit>:<path>"; a missing key means the file doesn't exist at that commit. */
+    private val files: Map<String, ByteArray> = emptyMap(),
 ) : ReviewProvider {
     val filters = mutableListOf<ReviewFilter>()
     val votes = mutableListOf<Vote>()
@@ -40,7 +42,7 @@ class FakeReviewProvider(
 
     override suspend fun listRevisions(ref: ReviewRef) = revisions
     override suspend fun listChanges(ref: ReviewRef, revision: Revision) = changes[revision.id].orEmpty()
-    override suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray? = unused()
+    override suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray? = files["$commit:$path"]
     override suspend fun listThreads(ref: ReviewRef, revision: Revision?): List<ReviewThread> = threads
     override suspend fun createThread(ref: ReviewRef, revision: Revision, anchor: ThreadAnchor?, body: String): ReviewThread {
         createdThreads += anchor to body

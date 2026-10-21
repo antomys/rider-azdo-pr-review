@@ -162,6 +162,36 @@ Closing the details tab closes its timeline tab.
 - Stored locally per pull request and file. A mark counts only while the file's version (blob) is unchanged, so a new push to that file clears it.
 - Not synced to Azure DevOps or across machines.
 
+## AI review (opt-in)
+
+Off by default. Nothing is sent anywhere until the user enables it and confirms a run.
+
+- **Settings**, a new "AI Review" group at the end of **Settings | Tools | Azure DevOps PR Review**, stored for the whole IDE (nothing secret):
+  - **Enable Review with AI** (unchecked by default); the other fields are disabled until it's checked;
+  - **Claude Code CLI**: the path to `claude`; empty means `claude` on PATH, then `~/.local/bin`. **Detect** shows "Found: <version> at <path>" or "Not found: <reason>";
+  - **Exclude files**: globs separated by commas or new lines, never sent. A glob without `/` matches the file name, one with `/` the path; case is ignored. Defaults: `.env`, `.env.*`, `*.pem`, `*.key`, `*.pfx`, `*.p12`, `id_rsa*`, `appsettings.*.json`, `secrets.*`, `*.keystore`;
+  - **Extra instructions**: added to the prompt;
+  - **Max findings**: default 20 (1–100).
+- **"Review with AI…"**: the last item of the details tab's **⋮** menu, after a separator, shown only while the setting is enabled (the ⋮ menu exists only for open pull requests).
+- **Preparing** (background task with Cancel): checks that the CLI runs (`--version`), then diffs every changed file of the latest iteration against the merge base (unified diff, 3 lines of context). Files matching an exclude glob aren't downloaded. Binary files, files without text changes (pure renames) and files past the 200 kB total are left out.
+- **Consent dialog**, on every run:
+  - "Send these diffs to Claude Code?" and that the diffs, title and description go to Anthropic through Claude Code under the user's own Claude account, and nothing is posted until findings are chosen;
+  - the tool's version and location, and the command line without the prompt;
+  - **Files to send**, each with a checkbox (all ticked) and its diff size, and a running total; unticking leaves a file out;
+  - **Not sent**: each left-out file with its reason ("matches .env.*", "binary file", "no text changes", "over the 200 kB limit");
+  - **Send** (disabled when no file is ticked) and **Cancel**.
+- **Review** (background task with Cancel): Claude Code runs with no tools, no MCP servers and no saved session, in an empty temporary directory that is deleted afterwards, with the prompt on stdin and a 5-minute limit. Cancel or the limit stops the CLI and everything it started. The CLI gets a minimal environment, never the Azure DevOps token.
+- **Findings** are checked before they are shown: a finding whose file wasn't sent, or whose lines aren't in the file on that side, is dropped, and so are those past Max findings.
+  - No findings: "Claude Code found nothing to report.", plus the dropped count.
+- **Preview dialog** "AI Review Findings":
+  - "N findings from Claude Code. Info findings start unticked." and, when some were dropped, "Dropped N: … not on a file or line of the diff, … over the limit of 20.";
+  - each finding: a checkbox (ticked for errors and warnings, unticked for info), the severity with its icon, `File.cs:12` or `File.cs:12–14` ("(base)" for a deleted line; the full path in the tooltip), the title in an editable field, and the body as Markdown with **Edit** / **Preview** to change it;
+  - **Add as Drafts** (default): each ticked finding becomes a pending draft on its file and lines, shown as PENDING in the diff and sent with Submit Review;
+  - **Post Now**: each ticked finding is posted at once as an active thread on its file and lines; after a failure, the message says how many were posted;
+  - the comment is `**<title>**`, a blank line, then the body; nothing else is added.
+- AI text is shown only as sanitised Markdown or plain text, like comments.
+- Errors (CLI not found, not signed in, timeout, non-zero exit, unreadable output) show in a "Review with AI" error dialog with the end of the CLI's error output; values of Claude sign-in variables are masked.
+
 ## Not in 0.1.0
 
 These are planned or specified in `docs/`, but not built. Building them is a new feature, not a change to the baseline.
