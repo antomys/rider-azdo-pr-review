@@ -23,6 +23,8 @@ import io.github.antomys.azdoprreview.review.Side
 import io.github.antomys.azdoprreview.review.ThreadAnchor
 import io.github.antomys.azdoprreview.review.ThreadStatus
 import io.github.antomys.azdoprreview.review.Vote
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -36,6 +38,9 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
     private val users = ConcurrentHashMap<String, ReviewUser>()
     private val teamMembers = ConcurrentHashMap<String, List<ReviewUser>>()
+
+    /** Users by Graph descriptor, so a search hit seen before costs no storage-key request. */
+    private val graphUsers = ConcurrentHashMap<String, ReviewUser>()
 
     /** changeTrackingId by file path, per review and iteration; needed to anchor new threads. */
     private val trackingIds = ConcurrentHashMap<Pair<ReviewRef, Int>, Map<String, Int>>()
@@ -74,17 +79,19 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         changeEntries(ref, revision.id).map { it.toFileChange() }
 
     override suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray? = try {
-        client.send(
-            "GET",
-            url(
-                client.orgUrl, repoPath(repo) + "/items",
-                "path" to path,
-                "versionDescriptor.version" to commit,
-                "versionDescriptor.versionType" to "commit",
-                API,
-            ),
-            accept = "application/octet-stream",
-        )
+        withContext(Dispatchers.Default) {
+            client.send(
+                "GET",
+                url(
+                    client.orgUrl, repoPath(repo) + "/items",
+                    "path" to path,
+                    "versionDescriptor.version" to commit,
+                    "versionDescriptor.versionType" to "commit",
+                    API,
+                ),
+                accept = "application/octet-stream",
+            )
+        }
     } catch (e: AzureDevOpsException) {
         if (e.status == 404) null else throw e
     }
@@ -127,7 +134,7 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         ).toComment()
 
     override suspend fun deleteComment(ref: ReviewRef, threadId: Int, commentId: Int) {
-        client.send("DELETE", url(client.orgUrl, prPath(ref) + "/threads/$threadId/comments/$commentId", API))
+        withContext(Dispatchers.Default) { client.send("DELETE", url(client.orgUrl, prPath(ref) + "/threads/$threadId/comments/$commentId", API)) }
     }
 
     override suspend fun setThreadStatus(ref: ReviewRef, threadId: Int, status: ThreadStatus): ReviewThread =
@@ -168,7 +175,7 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
     }
 
     override suspend fun avatar(user: ReviewUser): ByteArray? = try {
-        client.send("GET", url(client.orgUrl, "/_api/_common/identityImage", "id" to user.id), accept = "image/png")
+        withContext(Dispatchers.Default) { client.send("GET", url(client.orgUrl, "/_api/_common/identityImage", "id" to user.id), accept = "image/png") }
     } catch (e: AzureDevOpsException) {
         if (e.status == 404) null else throw e
     }
@@ -202,8 +209,11 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
             "POST", url(client.identityUrl, "/_apis/graph/subjectquery", GRAPH_API), SubjectQueryDto(query),
         ).value.orEmpty()
         return subjects.take(limit).map { subject ->
-            val id = get<StorageKeyDto>(url(client.identityUrl, "/_apis/graph/storagekeys/${encode(subject.descriptor)}", GRAPH_API)).value
-            ReviewUser(id, subject.displayName ?: id, subject.mailAddress ?: subject.principalName).also { users[id] = it }
+            graphUsers[subject.descriptor] ?: run {
+                val id = get<StorageKeyDto>(url(client.identityUrl, "/_apis/graph/storagekeys/${encode(subject.descriptor)}", GRAPH_API)).value
+                ReviewUser(id, subject.displayName ?: id, subject.mailAddress ?: subject.principalName)
+                    .also { users[id] = it; graphUsers[subject.descriptor] = it }
+            }
         }
     }
 
@@ -241,11 +251,14 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         return ids[path] ?: throw IllegalArgumentException("$path is not changed in iteration $iteration")
     }
 
-    private suspend inline fun <reified T> get(url: String): T =
-        json.decodeFromString(client.send("GET", url).decodeToString())
+    // Callers launch on the EDT; the HTTP wait, status handling and decoding stay off it so only the result returns there.
+    private suspend inline fun <reified T> get(url: String): T = withContext(Dispatchers.Default) {
+        json.decodeFromString<T>(client.send("GET", url).decodeToString())
+    }
 
-    private suspend inline fun <reified B, reified T> send(method: String, url: String, body: B): T =
-        json.decodeFromString(client.send(method, url, json.encodeToString(body)).decodeToString())
+    private suspend inline fun <reified B, reified T> send(method: String, url: String, body: B): T = withContext(Dispatchers.Default) {
+        json.decodeFromString<T>(client.send(method, url, json.encodeToString(body)).decodeToString())
+    }
 
     private fun IdentityRefDto.toUser() = ReviewUser(id, displayName ?: id, uniqueName).also { users[id] = it }
 
