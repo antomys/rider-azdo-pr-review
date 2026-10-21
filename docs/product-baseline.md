@@ -36,7 +36,23 @@ Docked on the left, with a merge icon. The first tab, "Pull Requests", is the li
   - Line 2 (grey): `#<id> · created <date>, by <author>`, plus the state when it isn't Open.
 - Comment counts load after the list, 4 requests at a time.
 - Double-click or Enter opens the pull request.
-- Empty states: "Loading pull requests…"; "Azure DevOps isn't configured" with an "Open settings" link; the error text with "Retry"; "No pull requests" or "No pull requests match the search", with "Reset filters" when filters aren't the default.
+- Empty states: "Loading pull requests…"; the error text with "Retry"; "No pull requests" or "No pull requests match the search", with "Reset filters" when filters aren't the default. Missing settings show the sign-in panel instead (see below).
+
+### Sign-in panel
+
+Replaces the Pull Requests tab's content while the organization, token, project or repository isn't set, or after Azure DevOps rejected the saved token. There's no prompt at IDE startup.
+- Title "Sign in to Azure DevOps", then the fields **Organization**, **Personal access token** (masked), **Project** and **Repository**.
+  - For a project not set up yet, organization, project and repository are prefilled from the project's Git remote (`origin` first) when it is an Azure DevOps URL: `https://dev.azure.com/{org}/{project}/_git/{repo}`, the same with `{org}@`, `https://{org}.visualstudio.com/{project}/_git/{repo}`, or `git@ssh.dev.azure.com:v3/{org}/{project}/{repo}`. Otherwise they show the saved settings.
+  - When a token is saved, the token field can be left empty to use it ("Leave empty to use the saved token.").
+- The required scopes, and that tokens for all organizations stop working on 1 December 2026, so the token should be for this organization only.
+- **Create token** opens `https://dev.azure.com/<organization>/_usersSettings/tokens` for the organization in the field.
+- **Sign In** (or Enter in a field) first checks the token: whose it is, then access to the repository, with "Checking the token…".
+  - Success: saves the organization (IDE-wide), the token (password storage) and the project and repository (per project), then loads the list without a restart.
+  - Failure: the error appears under the button with **Retry**; nothing is saved.
+- **Rejected token:** when any call (list, pull request tab, diff, timeline) is rejected (HTTP 401, a 203 sign-in page, or a redirect to sign-in) and the same token can't read its own user either, the panel shows "Azure DevOps rejected the token. It may have expired or been revoked." at the top, and the Pull Requests tab is selected.
+  - The saved token is kept until a new one validates.
+  - After signing in with a new token, the `#<id>` tabs opened with the old one close, with their unsent drafts. Signing in again with the saved token keeps them.
+- Errors elsewhere use the same wording: "The token can't do this. It needs: Code (Read & write), Identity (Read), Graph (Read)." (403); "Project, repository or pull request not found, or the token has no access to it." (404); "Azure DevOps is limiting requests. Try again in a minute." (429 after the retries); "Azure DevOps is unavailable (HTTP 5xx)."; "Can't reach <host>." (network). The others add the HTTP status and the service's message, never the token or response bodies.
 
 ### Opening a pull request
 

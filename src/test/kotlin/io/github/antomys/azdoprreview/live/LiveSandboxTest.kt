@@ -1,7 +1,9 @@
 package io.github.antomys.azdoprreview.live
 
 import io.github.antomys.azdoprreview.azdo.AzureDevOpsClient
+import io.github.antomys.azdoprreview.azdo.AzureDevOpsException
 import io.github.antomys.azdoprreview.azdo.AzureDevOpsProvider
+import io.github.antomys.azdoprreview.azdo.AzureDevOpsSignIn
 import io.github.antomys.azdoprreview.review.ChangeKind
 import io.github.antomys.azdoprreview.review.RepoRef
 import io.github.antomys.azdoprreview.review.ReviewFilter
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 
 /**
@@ -101,5 +104,31 @@ class LiveSandboxTest {
         val threads = provider.listThreads(ReviewRef(repo, 1)).associateBy { it.id }
         assertTrue(threads.getValue(1).isSystem)
         assertTrue((2..6).none { threads.getValue(it).isSystem })
+    }
+
+    /** A client of its own, as the sign-in panel uses. */
+    private fun signInClient() = AzureDevOpsClient.forOrganization("igorvolokhovych", requireNotNull(System.getenv("AZDO_PAT")))
+
+    @Test
+    fun `sign-in validates the token and the repository`() = runBlocking {
+        val user = AzureDevOpsSignIn.validate(signInClient(), repo)
+        assertEquals(provider.currentUser().id, user.id)
+    }
+
+    @Test
+    fun `sign-in maps a wrong token to rejected`() {
+        var rejected = 0
+        val client = AzureDevOpsClient.forOrganization("igorvolokhovych", "not-a-valid-token") { rejected++ }
+        val e = assertThrows<AzureDevOpsException> { runBlocking { AzureDevOpsSignIn.validate(client, repo) } }
+        assertEquals(AzureDevOpsException.Kind.REJECTED, e.kind)
+        assertEquals(1, rejected)
+    }
+
+    @Test
+    fun `sign-in maps an unknown repository to not found`() {
+        val e = assertThrows<AzureDevOpsException> {
+            runBlocking { AzureDevOpsSignIn.validate(signInClient(), RepoRef("test-pr-reviewer", "no-such-repo")) }
+        }
+        assertEquals(AzureDevOpsException.Kind.NOT_FOUND, e.kind)
     }
 }

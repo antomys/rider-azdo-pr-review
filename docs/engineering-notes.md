@@ -73,6 +73,12 @@ Facts verified while building 0.1.0 (2026-10-20), against Rider 2026.2.2 (`RD-26
   - project team members come from `GET {org}/_apis/projects/{project}/teams` then `…/teams/{id}/members` (`identity.{id,displayName,uniqueName}`).
 - **Avatars:** `GET {org}/_api/_common/identityImage?id=<id>` returns `image/png` with PAT basic auth. Sandbox users without a photo get a generated initials image.
 - **Viewed marks:** no public API for Azure DevOps' own reviewed marks was found (**UNVERIFIED** that none exists), so they are stored locally (`ViewedFilesStore`, key `<pr web url>|<path>`, value = file version).
+- **Token failures (checked 2026-10-21 with curl and `LiveSandboxTest`, read-only):**
+  - a wrong PAT, and no `Authorization` header at all, on `GET {org}/_apis/connectionData` get **302** (`text/html`) with `Location: https://…vssps.visualstudio.com/_signin?realm=dev.azure.com&reply_to=…`, not 401. The JDK `HttpClient` doesn't follow redirects by default, so the client maps a 3xx whose `Location` contains `_signin` to "rejected";
+  - the 401 and 203-with-HTML forms were not observed (**UNVERIFIED**; they stay mapped to "rejected" as in the spec);
+  - an unknown organization gives 404 with an HTML page (no JSON `message`); an unknown repository gives 404 with `TF401019: The Git repository with name or identifier … does not exist or you do not have permissions …`;
+  - `GET {org}/{project}/_apis/git/repositories/{repo}` returns 200 with the repository (`id`, `name`, `project`, `remoteUrl`, …) for a valid PAT; the sign-in check uses it;
+  - whether a PAT missing a scope gets 401 or 403 is **UNVERIFIED** (needs a scope-limited test PAT from the owner, sandbox-plan S1 step 5). Because a 401 could mean a missing scope, `AzureDevOpsConnection` treats a rejection as real only when `connectionData` with the same token is rejected too.
 
 ## Release
 
