@@ -39,7 +39,11 @@ class Avatars private constructor(private val provider: ReviewProvider) {
     fun icon(user: ReviewUser, size: Int, repaint: Component? = null): Icon {
         load(user)
         // Only a load still in flight can repaint; registering after a failed load would retain the component forever.
-        if (repaint != null && user.id !in done) waiting.getOrPut(user.id) { ConcurrentHashMap.newKeySet() } += repaint
+        if (repaint != null && user.id !in done) {
+            waiting.getOrPut(user.id) { ConcurrentHashMap.newKeySet() } += repaint
+            // The load may have finished between the check and the add, leaving a set nobody drains.
+            if (user.id in done) waiting.remove(user.id)
+        }
         return AvatarIcon(user, size)
     }
 
