@@ -80,6 +80,36 @@ Facts verified while building 0.1.0 (2026-10-20), against Rider 2026.2.2 (`RD-26
   - `GET {org}/{project}/_apis/git/repositories/{repo}` returns 200 with the repository (`id`, `name`, `project`, `remoteUrl`, …) for a valid PAT; the sign-in check uses it;
   - whether a PAT missing a scope gets 401 or 403 is **UNVERIFIED** (needs a scope-limited test PAT from the owner, sandbox-plan S1 step 5). Because a 401 could mean a missing scope, `AzureDevOpsConnection` treats a rejection as real only when `connectionData` with the same token is rejected too.
 
+## AI review: Claude Code CLI (checked 2026-10-21)
+
+Only `claude --help`, `claude --version` and `claude auth --help` were run; no prompt was ever sent.
+
+- **Version:** `~/.local/bin/claude` is a symlink to `~/.local/share/claude/versions/2.1.306`; `--version` prints `2.1.306 (Claude Code)`.
+- **Flags used, as `--help` describes them:**
+  - `-p, --print`: print the response and exit; skips the workspace trust dialog, so run it only in a directory you trust (we use an empty temp directory);
+  - `--tools <tools...>`: `""` disables all built-in tools. It is variadic, so a positional prompt after it would be read as a tool name; the prompt goes on stdin instead;
+  - `--strict-mcp-config`: only MCP servers from `--mcp-config`; we pass none, so none load;
+  - `--no-session-persistence`: sessions aren't saved to disk (only with `--print`);
+  - `--output-format json`: "single result" (only with `--print`);
+  - `--json-schema <schema>`: JSON Schema for structured output validation, passed inline (only with `--print`).
+- **Flags not used:**
+  - `--bare`: Anthropic auth becomes strictly `ANTHROPIC_API_KEY` or an `apiKeyHelper`, "OAuth and keychain are never read", which breaks a normal subscription sign-in;
+  - `--restricted`: would also ignore the user's settings files; its effect on sign-in is untested;
+  - `--allowedTools` and `--permission-mode`: not needed once `--tools ""` removes the tools.
+- **UNVERIFIED** (needs a real run):
+  - the JSON envelope: an object with `type: "result"`, `is_error`, `result` and, with `--json-schema`, `structured_output`. The parser also accepts the answer as JSON in `result` (bare, fenced or with text around it), an array of messages, and an envelope that is itself the answer;
+  - that `-p` reads the prompt from stdin when no prompt argument is given (the help says "useful for pipes");
+  - that structured output still works with `--tools ""`. The prompt repeats the schema, so a plain JSON answer in `result` also works;
+  - the wording of the not-signed-in error (the parser looks for "log in", "sign in", "API key", "authenticat" or "OAuth" to add a sign-in hint);
+  - which environment variables sign-in needs besides HOME and USER. On macOS the subscription login is in the keychain. Passed through: PATH (plus `~/.local/bin`), HOME, USER, LOGNAME, LANG, LC_ALL, LC_CTYPE, TMPDIR/TMP/TEMP, the Windows profile variables, proxies, `NODE_EXTRA_CA_CERTS`, and Claude's own `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`. Everything else is dropped, including `AZDO_PAT` and any other `*_TOKEN`/`*SECRET*`. Bedrock and Vertex credentials aren't passed, so those setups won't work.
+- **JDK processes (verified by `ProcessRunnerTest`, macOS):**
+  - once a child exits, the JDK drains and closes its stdout and stderr pipes, so readers don't hang on grandchildren that still hold them;
+  - the grandchildren keep running, though. Kill `process.descendants()` before the process itself, because orphans get a new parent and drop out of the list. The tree-kill tests fail without this.
+- **Platform:**
+  - `com.intellij.util.diff.Diff.buildChanges(T[], T[])` (`intellij.platform.util.diff.jar`) has no API-status annotation and runs in plain unit tests without an application;
+  - `StringUtil.formatFileSize` is decimal: 1000 → "1 kB", 1024 → "1.02 kB". The size cap is 200 000 bytes;
+  - `withBackgroundProgress(project, title, cancellable = true)` and `DialogWrapper` with a custom `DialogWrapperAction` pass the verifier (Compatible, no internal or deprecated use).
+
 ## Release
 
 - Version: `pluginVersion` in `gradle.properties`. Compatibility: `pluginSinceBuild=262`, `pluginUntilBuild=262.*`.

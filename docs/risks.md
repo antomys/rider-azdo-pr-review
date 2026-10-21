@@ -54,6 +54,14 @@ Each risk has a likelihood/impact rating (L/M/H) and a mitigation. Research date
   - Run the CLIs with read-only tool permissions in a temp directory.
 - **AI output is untrusted:** it is shown as text, never executed, and its file and line references are validated against the diff.
 - **Testing:** no live AI calls in automated tests; only the fake adapter.
+- **Implemented (Claude Code adapter, 0.2.0):**
+  - off by default (Settings, "AI Review" group);
+  - consent dialog on every run, with the tool, version, command line, each file's diff size, a per-file opt-out, the excluded files with reasons, and the total;
+  - exclude globs with the secret-like defaults above, plus `*.key`, `*.pfx`, `*.p12`, `id_rsa*`, `secrets.*`, `*.keystore`; binary files and anything past 200 kB are not sent;
+  - preview with per-finding selection and editing; the default turns findings into drafts, nothing is posted automatically;
+  - the CLI runs with no tools (`--tools ""`), no MCP servers, no saved session, in an empty temporary directory, with a minimal environment that never holds the Azure DevOps PAT, a 5-minute timeout, and a process-tree kill on cancel;
+  - findings are validated against the sent diff and rendered only as sanitised Markdown.
+- **Not covered:** the Copilot CLI adapter (not built); path *include* globs.
 
 ## R6. License constraints — impact M, likelihood L
 - **Reference sources:**
