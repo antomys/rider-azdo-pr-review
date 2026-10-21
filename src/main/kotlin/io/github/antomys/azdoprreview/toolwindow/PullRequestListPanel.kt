@@ -199,7 +199,7 @@ class PullRequestListPanel(
     /** "Author ▾" when unset; "Value ×" when set, where × clears it. Clicking the text opens the choices. */
     private fun chip(name: String, value: String?, clear: () -> Unit, open: (JComponent) -> Unit): JComponent {
         val panel = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), 0)).apply { isOpaque = false }
-        val text = JBLabel(value ?: name).apply {
+        val text = JBLabel(value ?: name).plainText().apply {
             foreground = if (value == null) UIUtil.getContextHelpForeground() else UIUtil.getLabelForeground()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             toolTipText = if (value == null) "Filter by ${name.lowercase()}" else "$name: $value"

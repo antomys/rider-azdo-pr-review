@@ -46,15 +46,20 @@ class MarkdownPane(markdown: String, color: Color? = null) : JEditorPane() {
     }
 }
 
-/** What the converter emits for Markdown syntax (`span` carries strikethrough); any other tag is shown as text. */
+/**
+ * What the converter emits for Markdown syntax (`span` carries strikethrough) plus `font`, which the panels use for
+ * the grey `#id` next to a title; any other tag is shown as text.
+ */
 private val ALLOWED_TAGS = setOf(
-    "p", "br", "strong", "em", "b", "i", "s", "del", "span", "code", "pre", "ul", "ol", "li", "blockquote",
+    "p", "br", "strong", "em", "b", "i", "s", "del", "span", "font", "code", "pre", "ul", "ol", "li", "blockquote",
     "h1", "h2", "h3", "h4", "h5", "h6", "hr", "a", "table", "thead", "tbody", "tr", "th", "td", "input",
 )
-private val TAG = Regex("""<(/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>""")
+// Swing's parser also accepts end of input as the end of a tag, so an unterminated tag must be caught too.
+private val TAG = Regex("""<(/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)(?:>|\z)""")
 private val HREF = Regex("""\bhref\s*=\s*"([^"]*)"""", RegexOption.IGNORE_CASE)
 private val SAFE_HREF = Regex("""^(https?://|mailto:)""", RegexOption.IGNORE_CASE)
 private val INPUT_ATTR = Regex("""\b(type|checked|disabled)\b(\s*=\s*"[^"]*")?""", RegexOption.IGNORE_CASE)
+private val FONT_COLOR = Regex("""\bcolor\s*=\s*"(#[0-9a-fA-F]{3,6}|[a-zA-Z]+)"""", RegexOption.IGNORE_CASE)
 
 /**
  * Keeps only the tags and attributes Markdown needs, so raw HTML in a description or comment can't make the IDE
@@ -71,6 +76,7 @@ fun sanitizeHtml(html: String): String = TAG.replace(html) { match ->
         tag == "a" -> HREF.find(attrs)?.groupValues?.get(1)?.trim()?.takeIf { SAFE_HREF.containsMatchIn(it) }
             ?.let { "<a href=\"$it\">" } ?: "<a>"
         tag == "input" -> "<input" + INPUT_ATTR.findAll(attrs).joinToString("") { " ${it.value}" } + ">"
+        tag == "font" -> FONT_COLOR.find(attrs)?.let { "<font color=\"${it.groupValues[1]}\">" } ?: "<font>"
         else -> "<$tag>"
     }
 }
