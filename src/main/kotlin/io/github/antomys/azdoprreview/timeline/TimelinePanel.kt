@@ -2,6 +2,7 @@ package io.github.antomys.azdoprreview.timeline
 
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.components.JBLabel
@@ -24,6 +25,7 @@ import io.github.antomys.azdoprreview.ui.DraftPanel
 import io.github.antomys.azdoprreview.ui.MarkdownPane
 import io.github.antomys.azdoprreview.ui.Mentions
 import io.github.antomys.azdoprreview.ui.ThreadPanel
+import io.github.antomys.azdoprreview.ui.plainText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
@@ -121,7 +123,7 @@ class TimelinePanel(
         add(JBLabel(avatars.icon(author, AVATAR_SIZE, this)).apply { verticalAlignment = SwingConstants.TOP }, BorderLayout.WEST)
         add(JPanel(VerticalLayout(JBUI.scale(4))).apply {
             isOpaque = false
-            add(JBLabel("<html><b>${author.displayName}</b> $action · ${DateFormatUtil.formatPrettyDateTime(time.toEpochMilli())}</html>"))
+            add(JBLabel("<html><b>${StringUtil.escapeXmlEntities(author.displayName)}</b> $action · ${DateFormatUtil.formatPrettyDateTime(time.toEpochMilli())}</html>"))
             add(content)
         }, BorderLayout.CENTER)
     })
@@ -130,7 +132,7 @@ class TimelinePanel(
     private fun event(thread: ReviewThread): JComponent {
         val comment = thread.comments.first()
         val time = DateFormatUtil.formatPrettyDateTime(comment.created.toEpochMilli())
-        return JBLabel("${comment.displayBody.lineSequence().first()} · $time").apply {
+        return JBLabel("${comment.displayBody.lineSequence().first()} · $time").plainText().apply {
             foreground = UIUtil.getContextHelpForeground()
             border = JBUI.Borders.compound(
                 JBUI.Borders.emptyLeft(16),

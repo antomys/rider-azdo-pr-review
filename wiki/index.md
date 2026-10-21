@@ -20,6 +20,7 @@ When this file exceeds ~300 lines or the wiki passes ~150 pages, shard into `wik
 - [[src-features-f1-f5]] — F1–F5 spec (not built) and error-state mapping
 - [[src-sandbox-plan]] — sandbox test PR plan
 - [[src-sandbox-inventory]] — every sandbox artifact and write
+- [[src-security-review]] — 2026-10-20 security and performance review: boundaries, findings, fixes, backlog
 
 ## Entities
 

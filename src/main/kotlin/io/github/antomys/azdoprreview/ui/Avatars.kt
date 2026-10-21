@@ -31,13 +31,19 @@ class Avatars private constructor(private val provider: ReviewProvider) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val requested = ConcurrentHashMap.newKeySet<String>()
+    private val done = ConcurrentHashMap.newKeySet<String>()
     private val images = ConcurrentHashMap<String, BufferedImage>()
     private val waiting = ConcurrentHashMap<String, MutableSet<Component>>()
 
     /** An icon [size] (unscaled) pixels wide; [repaint] is repainted when the picture arrives. */
     fun icon(user: ReviewUser, size: Int, repaint: Component? = null): Icon {
         load(user)
-        if (repaint != null && images[user.id] == null) waiting.getOrPut(user.id) { ConcurrentHashMap.newKeySet() } += repaint
+        // Only a load still in flight can repaint; registering after a failed load would retain the component forever.
+        if (repaint != null && user.id !in done) {
+            waiting.getOrPut(user.id) { ConcurrentHashMap.newKeySet() } += repaint
+            // The load may have finished between the check and the add, leaving a set nobody drains.
+            if (user.id in done) waiting.remove(user.id)
+        }
         return AvatarIcon(user, size)
     }
 
@@ -52,10 +58,11 @@ class Avatars private constructor(private val provider: ReviewProvider) {
                 // Initials stay in place of a picture that can't be loaded.
                 null
             }
-            if (image != null) {
-                images[user.id] = image
-                waiting.remove(user.id)?.forEach { UIUtil.invokeLaterIfNeeded { it.repaint() } }
-            }
+            if (image != null) images[user.id] = image
+            // Mark done before draining, so a component registered meanwhile is either drained here or never added.
+            done += user.id
+            val components = waiting.remove(user.id)
+            if (image != null) components?.forEach { UIUtil.invokeLaterIfNeeded { it.repaint() } }
         }
     }
 

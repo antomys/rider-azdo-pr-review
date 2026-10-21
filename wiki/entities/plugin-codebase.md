@@ -18,7 +18,7 @@ Kotlin sources in `src/main/kotlin/io/github/antomys/azdoprreview/`, layered `az
 | `toolwindow/` | Tool window factory; list and details view models and panels; `ReviewFilesTree`; `SubmitReviewPopup` |
 | `timeline/` | "Timeline for #id" editor: `TimelineFile` (virtual file), `TimelineEditorProvider`, `TimelinePanel` |
 | `diff/` | `ReviewDiff` (one reused diff tab), `ReviewDiffExtension` (threads, drafts, gutter in the viewer), `ReviewDiffActions` (toolbar) |
-| `ui/` | Shared components: `CommentField` (mentions), `CommentComposer`, `ThreadPanel`, `DraftPanel`, `Avatars`, `Badge`, `MarkdownPane`, `VoteIcons` |
+| `ui/` | Shared components: `CommentField` (mentions), `CommentComposer`, `ThreadPanel`, `DraftPanel`, `Avatars`, `Badge`, `MarkdownPane` (with the `sanitizeHtml` allow-list), `PlainText` (`plainText()` for labels showing server text), `VoteIcons` |
 
 **Key types:**
 - `PullRequestDetailsViewModel` is per opened PR. It holds state, threads, viewed marks, the shown file, pending navigation and **drafts**.

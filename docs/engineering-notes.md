@@ -13,7 +13,7 @@ Facts verified while building 0.1.0 (2026-10-20), against Rider 2026.2.2 (`RD-26
 - `verifyPlugin` must stay **Compatible**, with no deprecated, experimental, scheduled-for-removal or internal API usage. Read `build/reports/pluginVerifier/…/verification-verdict.txt`.
 - `gradle.properties` raises the Gradle (2 GB) and Kotlin daemon (3 GB) heaps. Non-incremental builds against the full platform run out of memory otherwise.
 - After changing a model class's constructor, old test classes can fail with `NoSuchMethodError`. Delete `build/classes/kotlin/test` and `build/kotlin/compileTestKotlin`, then rerun.
-- Tests: 57 (5 live tests skipped unless `AZDO_LIVE_TEST=1` and `AZDO_PAT` are set). Unit tests replay recorded fixtures through `FixtureServer` and make no network calls.
+- Tests: 68 (5 live tests skipped unless `AZDO_LIVE_TEST=1` and `AZDO_PAT` are set). Unit tests replay recorded fixtures through `FixtureServer` and make no network calls.
 
 ## Sandbox IDE (`runIde`)
 

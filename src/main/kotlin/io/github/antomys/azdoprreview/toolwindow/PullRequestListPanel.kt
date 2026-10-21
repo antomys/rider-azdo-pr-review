@@ -2,6 +2,7 @@ package io.github.antomys.azdoprreview.toolwindow
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.CollectionListModel
@@ -23,6 +24,7 @@ import io.github.antomys.azdoprreview.toolwindow.PullRequestListViewModel.State
 import io.github.antomys.azdoprreview.ui.Avatars
 import io.github.antomys.azdoprreview.ui.Badge
 import io.github.antomys.azdoprreview.ui.VoteIcons
+import io.github.antomys.azdoprreview.ui.plainText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -197,7 +199,7 @@ class PullRequestListPanel(
     /** "Author ▾" when unset; "Value ×" when set, where × clears it. Clicking the text opens the choices. */
     private fun chip(name: String, value: String?, clear: () -> Unit, open: (JComponent) -> Unit): JComponent {
         val panel = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), 0)).apply { isOpaque = false }
-        val text = JBLabel(value ?: name).apply {
+        val text = JBLabel(value ?: name).plainText().apply {
             foreground = if (value == null) UIUtil.getContextHelpForeground() else UIUtil.getLabelForeground()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             toolTipText = if (value == null) "Filter by ${name.lowercase()}" else "$name: $value"
@@ -233,7 +235,7 @@ class PullRequestListPanel(
 
     /** Title, then "#id · created <date>, by <author>"; on the right a draft badge, labels, reviewers and the comment count. */
     private inner class ReviewRenderer : ListCellRenderer<ReviewSummary> {
-        private val title = JBLabel()
+        private val title = JBLabel().plainText()
         private val details = JBLabel()
         private val right = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply { isOpaque = false }
         private val panel = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
@@ -260,7 +262,7 @@ class PullRequestListPanel(
 
             right.removeAll()
             if (value.isDraft) right.add(Badge("DRAFT"))
-            if (value.labels.isNotEmpty()) right.add(JBLabel(AllIcons.Nodes.Tag).apply { toolTipText = value.labels.joinToString() })
+            if (value.labels.isNotEmpty()) right.add(JBLabel(AllIcons.Nodes.Tag).apply { toolTipText = "<html>" + StringUtil.escapeXmlEntities(value.labels.joinToString()) })
             val avatars = Avatars.of(vm.target?.provider ?: return panel)
             value.reviewers.take(MAX_AVATARS).forEach { reviewer ->
                 VoteIcons.of(reviewer.vote)?.let { right.add(JBLabel(it)) }
