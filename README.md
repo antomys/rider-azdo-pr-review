@@ -6,7 +6,7 @@
 
 Browse, read, comment and vote, the way JetBrains' GitLab integration does it, for Azure DevOps.
 
-[![Version](https://img.shields.io/badge/version-0.1.1-2f81f7)](https://github.com/antomys/rider-azdo-pr-review/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.2.0-2f81f7)](https://github.com/antomys/rider-azdo-pr-review/releases/latest)
 [![Rider](https://img.shields.io/badge/Rider-2026.2-000000?logo=rider&logoColor=white)](https://www.jetbrains.com/rider/)
 [![Azure DevOps](https://img.shields.io/badge/Azure%20DevOps-REST%207.1-0078D7?logo=azuredevops&logoColor=white)](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests?view=azure-devops-rest-7.1)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
@@ -27,12 +27,16 @@ Browse, read, comment and vote, the way JetBrains' GitLab integration does it, f
 | | |
 |---|---|
 | 🔎 **Find the right pull request** | Search by title, number, author or branch. Filter with chips for state, author, reviewer and label. Each row shows the draft badge, reviewer avatars with their votes, and the comment count. |
+| 🙋 **Assigned to me** | Every open pull request where you're a reviewer, directly or through one of your teams, with your role (required, optional, via team) and your vote. What still needs your review comes first. |
+| ✔️ **Reviewed marks** | Mark a pull request reviewed and it leaves your list until it changes. A new push brings it back as **Updated: iteration 1 → 2**. Marks stay on your machine. |
+| 🆕 **What changed since you last looked** | A banner lists the new iterations, commits and files since you last opened the pull request, and **Show changes since last view** diffs just those. |
 | 🧭 **Timeline** | Opening a pull request shows its description, discussion and events (pushes, votes) in order, in an editor tab. |
 | 🗂 **Files tree** | Folders with file counts, file-type icons, change colors, comment counts, and a blue dot on every file you haven't viewed yet. |
-| 🧾 **Side-by-side diff** | One reused diff tab. Threads sit right under their lines. Resolved threads fold into a single line. Gutter markers show where the comments are. |
+| 🧾 **Side-by-side and unified diff** | One reused diff tab. Threads sit right under their lines, in either view. Resolved threads fold into a single line. Gutter markers show where the comments are. |
 | 💬 **Comment like in the web UI, but faster** | Add a comment from the gutter on a line or a selection. Reply, resolve and reopen, and **@mention** people from your project. |
 | 📝 **Drafts by default** | Comments are held as drafts until you're done. **Submit Review** then sends them all, followed by your summary comment and your vote. |
 | ✅ **Every vote** | Approve, approve with suggestions, request changes, reject, or just comment. Approve with suggestions is offered automatically while you have open comments. |
+| 🤖 **AI review (opt-in)** | Off by default. Runs your own Claude Code CLI on the pull request's diffs after you've confirmed exactly which files are sent. You pick the findings to keep; they become drafts, or threads if you post them now. |
 | 🧰 **Review tools** | "← 1/7 files →" with a files popup, next and previous comment, viewed marks that reset when a file changes, and Request Review, Merge and Close actions. |
 
 <table>
@@ -61,7 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/antomys/rider-azdo-pr-review/master
 Then restart Rider. Running it again updates the plugin. Options go after `sh -s --`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/antomys/rider-azdo-pr-review/master/scripts/install-plugin.sh | sh -s -- --version v0.1.1
+curl -fsSL https://raw.githubusercontent.com/antomys/rider-azdo-pr-review/master/scripts/install-plugin.sh | sh -s -- --version v0.2.0
 ```
 
 From a checkout, `scripts/install-plugin.sh` also takes `--zip FILE` (a zip you downloaded) or `--build` (build this checkout and install it).
@@ -73,7 +77,7 @@ From a checkout, `scripts/install-plugin.sh` also takes `--zip FILE` (a zip you 
 
 ### Connect to Azure DevOps
 
-Open **Settings | Tools | Azure DevOps PR Review** and fill in:
+Open the **Azure DevOps PR Review** tool window on the left. The first time, it shows a sign-in panel; the same fields are in **Settings | Tools | Azure DevOps PR Review**:
 
 | Field | What to enter |
 |---|---|
@@ -81,7 +85,7 @@ Open **Settings | Tools | Azure DevOps PR Review** and fill in:
 | Personal access token | A token with **Code (Read & write)**, **Identity (Read)** and **Graph (Read)** |
 | Project, Repository | The repository whose pull requests you review |
 
-Then open the **Azure DevOps PR Review** tool window on the left.
+When the project's Git remote is on Azure DevOps, organization, project and repository are filled in for you. **Sign In** checks the token before saving anything. If the token later expires or is revoked, the panel comes back and says so.
 
 > [!TIP]
 > Prefer a short-lived token scoped to one organization. Azure DevOps stops accepting global tokens on 1 December 2026.
@@ -109,8 +113,9 @@ flowchart LR
 ## 🔒 Privacy and security
 
 - The token is kept in the IDE's password storage (the macOS Keychain on a Mac). It's never written to settings files, logs or error messages.
-- The plugin talks only to your Azure DevOps organization. No telemetry, no AI services, no third parties.
-- Viewed marks and drafts stay on your machine.
+- The plugin talks only to your Azure DevOps organization. No telemetry, no third parties.
+- The AI review is the one exception, and only if you turn it on: each run first shows exactly which diffs would go to Anthropic through your own Claude Code CLI. The CLI runs in an empty temporary folder, with no tools and without your Azure DevOps token. Secret-like files (`.env`, keys, `appsettings.*.json`, …) are never sent.
+- Viewed marks, reviewed marks and drafts stay on your machine.
 
 ## 🛠 Development
 
@@ -130,10 +135,11 @@ flowchart LR
 
 ```
 src/main/kotlin/io/github/antomys/azdoprreview/
-├── azdo/        Azure DevOps REST client and provider
-├── review/      provider-neutral review model and ReviewProvider
-├── settings/    settings page, token storage, viewed marks
-├── toolwindow/  pull request list, details tab, files tree, Submit Review
+├── ai/          opt-in AI review: Claude Code adapter, prompt, consent and preview
+├── azdo/        Azure DevOps REST client, provider, sign-in check
+├── review/      provider-neutral review model, ReviewProvider, reviewed marks
+├── settings/    settings page, token storage, viewed and reviewed marks
+├── toolwindow/  pull request list, sign-in panel, details tab, files tree, Submit Review
 ├── timeline/    "Timeline for #id" editor tab
 ├── diff/        review diff, inline threads and drafts, toolbar
 └── ui/          comment box, threads, drafts, avatars, Markdown
@@ -148,22 +154,20 @@ src/main/kotlin/io/github/antomys/azdoprreview/
 
 | Document | What's in it |
 |---|---|
-| [Product baseline](docs/product-baseline.md) | What 0.1.0 does, screen by screen |
+| [Product baseline](docs/product-baseline.md) | What 0.2.0 does, screen by screen |
 | [Engineering notes](docs/engineering-notes.md) | Verified platform pitfalls and Azure DevOps API facts |
 | [Plan and specification](docs/plan.md) | Original research, feature mapping, architecture |
-| [F1–F5](docs/features/F1-F5.md) | Next features: sign-in, assigned to me, reviewed marking, update detection, update view |
+| [F1–F5](docs/features/F1-F5.md) | Specs for sign-in, assigned to me, reviewed marking, update detection and the update view |
 | [Risks](docs/risks.md) · [Open decisions](docs/open-decisions.md) | Risks with mitigations; decisions with their defaults |
 | [Sandbox plan](docs/sandbox-plan.md) · [Inventory](docs/sandbox-inventory.md) | Test pull requests and everything created in the sandbox |
 | [Wiki](wiki/index.md) | Agent-maintained map of the project |
 
 ## 🗺 Roadmap
 
-Not in 0.1.0 yet:
-- threads in the unified diff view;
-- sign-in prompt and token renewal (F1);
-- team-aware "Assigned to me" (F2);
-- reviewed marking, update detection and the "what changed since I last looked" view (F3–F5);
-- an opt-in AI review that posts its findings as threads, after you've previewed them.
+Not built yet:
+- a second AI adapter (Copilot CLI);
+- create pull request, checkout, likes and suggestion apply;
+- Azure DevOps Server (on-premises) and OAuth sign-in.
 
 ---
 

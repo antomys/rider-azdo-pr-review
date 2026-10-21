@@ -1,6 +1,6 @@
-# Product baseline (0.1.0)
+# Product baseline (0.2.0)
 
-What the plugin does today, as approved by the owner on 2026-10-20 after reviewing it in a sandbox Rider (release `v0.1.0`, commit `8fd864e`).
+What the plugin does today. The 0.1.0 behavior was approved by the owner on 2026-10-20 after reviewing it in a sandbox Rider (release `v0.1.0`, commit `8fd864e`). The owner asked for the 0.2.0 features on 2026-10-21: the unified diff view, sign-in, "Assigned to me", reviewed marks with update detection and the update view, and the opt-in AI review.
 
 **Rules for changes**
 - Everything below is the intended behavior. Don't change, remove or restyle any of it unless the owner asks for that specific change.
@@ -215,11 +215,9 @@ Off by default. Nothing is sent anywhere until the user enables it and confirms 
 - A reviewed mark is cleared when the pull request has a newer iteration or a different source commit (a retarget counts). The list compares each reviewed pull request's last merge source commit with the reviewed one and reads the iterations only when they differ; opening the pull request always checks.
 - Records of completed or abandoned pull requests untouched for 90 days are removed when the list loads.
 
-## Not in 0.1.0
+## Not built yet
 
 These are planned or specified in `docs/`, but not built. Building them is a new feature, not a change to the baseline.
-- threads in the unified diff view;
-- the AI review;
-- the F1–F5 features (sign-in prompt, team-aware "Assigned to me", reviewed marking, update detection, update view);
+- a second AI adapter (Copilot CLI);
 - create pull request, checkout, likes, suggestion apply;
 - Azure DevOps Server (on-premises) and OAuth sign-in.
