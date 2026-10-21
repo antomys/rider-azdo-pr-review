@@ -1,13 +1,11 @@
 package io.github.antomys.azdoprreview.settings
 
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import io.github.antomys.azdoprreview.azdo.AzureDevOpsClient
 import io.github.antomys.azdoprreview.azdo.AzureDevOpsException
 import io.github.antomys.azdoprreview.azdo.AzureDevOpsProvider
 import io.github.antomys.azdoprreview.azdo.AzureDevOpsSignIn
-import io.github.antomys.azdoprreview.review.RepoRef
 import io.github.antomys.azdoprreview.review.ReviewTarget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,16 +33,17 @@ class AzureDevOpsConnection(private val project: Project, val scope: CoroutineSc
     /** The provider whose rejection is being confirmed, so parallel failures check it once. */
     private val checking = AtomicReference<Cached?>()
 
-    /** Null while the settings are incomplete. */
+    /**
+     * The repository of the project's Azure DevOps Git remote, or else the one in the settings, with its organization's
+     * token. Null while the organization, its token or the repository is missing.
+     */
     suspend fun target(): ReviewTarget? = withContext(Dispatchers.IO) {
-        val account = AzureDevOpsAccount.getInstance()
-        val settings = project.service<AzureDevOpsProjectSettings>()
-        val organization = account.organization
-        val pat = account.pat()
-        if (organization.isEmpty() || pat.isNullOrEmpty() || settings.project.isEmpty() || settings.repository.isEmpty()) {
-            return@withContext null
-        }
-        ReviewTarget(provider(organization, pat), RepoRef(settings.project, settings.repository))
+        val location = ReviewLocation.of(project)
+        val repo = location.repo ?: return@withContext null
+        val organization = location.organization.ifEmpty { return@withContext null }
+        val pat = AzureDevOpsAccount.getInstance().pat(organization)
+        if (pat.isNullOrEmpty()) return@withContext null
+        ReviewTarget(provider(organization, pat), repo)
     }
 
     /** Clears [rejected] after a token validated in the sign-in panel. */

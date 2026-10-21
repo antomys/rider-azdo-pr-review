@@ -66,4 +66,25 @@ class AzureDevOpsRemoteTest {
         assertEquals(expected, AzureDevOpsRemote.fromRepository(File(dir, "main")))
         assertNull(AzureDevOpsRemote.fromRepository(File(dir, "missing")))
     }
+
+    @Test
+    fun `finds the repository above a solution folder`(@TempDir dir: File) {
+        File(dir, ".git").mkdirs()
+        File(dir, ".git/config").writeText("[remote \"origin\"]\n\turl = https://dev.azure.com/fabrikam/Fiber%20Project/_git/web-app\n")
+        val solution = File(dir, "src/WebApp").apply { mkdirs() }
+
+        assertEquals(expected, AzureDevOpsRemote.find(solution))
+        assertEquals(expected, AzureDevOpsRemote.find(dir))
+    }
+
+    @Test
+    fun `stops at the nearest repository even without an Azure DevOps remote`(@TempDir dir: File) {
+        File(dir, ".git").mkdirs()
+        File(dir, ".git/config").writeText("[remote \"origin\"]\n\turl = https://dev.azure.com/fabrikam/Fiber%20Project/_git/web-app\n")
+        val nested = File(dir, "vendor/lib").apply { mkdirs() }
+        File(nested, ".git").mkdirs()
+        File(nested, ".git/config").writeText("[remote \"origin\"]\n\turl = https://github.com/someone/lib.git\n")
+
+        assertNull(AzureDevOpsRemote.find(nested))
+    }
 }

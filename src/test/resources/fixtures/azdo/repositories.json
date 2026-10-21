@@ -1,0 +1,68 @@
+{
+  "value": [
+    {
+      "id": "66666666-6666-6666-6666-666666666666",
+      "name": "web-app",
+      "url": "https://dev.azure.com/fabrikam/55555555-5555-5555-5555-555555555555/_apis/git/repositories/66666666-6666-6666-6666-666666666666",
+      "project": {
+        "id": "55555555-5555-5555-5555-555555555555",
+        "name": "Fiber Project",
+        "url": "https://dev.azure.com/fabrikam/_apis/projects/55555555-5555-5555-5555-555555555555",
+        "state": "wellFormed",
+        "revision": 11,
+        "visibility": "private",
+        "lastUpdateTime": "2026-10-20T10:00:00.000Z"
+      },
+      "defaultBranch": "refs/heads/main",
+      "size": 2048,
+      "remoteUrl": "https://fabrikam@dev.azure.com/fabrikam/Fiber%20Project/_git/web-app",
+      "sshUrl": "git@ssh.dev.azure.com:v3/fabrikam/Fiber%20Project/web-app",
+      "webUrl": "https://dev.azure.com/fabrikam/Fiber%20Project/_git/web-app",
+      "isDisabled": false,
+      "isInMaintenance": false
+    },
+    {
+      "id": "77777777-7777-7777-7777-777777777777",
+      "name": "archive",
+      "url": "https://dev.azure.com/fabrikam/55555555-5555-5555-5555-555555555555/_apis/git/repositories/77777777-7777-7777-7777-777777777777",
+      "project": {
+        "id": "55555555-5555-5555-5555-555555555555",
+        "name": "Fiber Project",
+        "url": "https://dev.azure.com/fabrikam/_apis/projects/55555555-5555-5555-5555-555555555555",
+        "state": "wellFormed",
+        "revision": 11,
+        "visibility": "private",
+        "lastUpdateTime": "2026-10-20T10:00:00.000Z"
+      },
+      "defaultBranch": "refs/heads/main",
+      "size": 0,
+      "remoteUrl": "https://fabrikam@dev.azure.com/fabrikam/Fiber%20Project/_git/archive",
+      "sshUrl": "git@ssh.dev.azure.com:v3/fabrikam/Fiber%20Project/archive",
+      "webUrl": "https://dev.azure.com/fabrikam/Fiber%20Project/_git/archive",
+      "isDisabled": true,
+      "isInMaintenance": false
+    },
+    {
+      "id": "88888888-8888-8888-8888-888888888888",
+      "name": "api",
+      "url": "https://dev.azure.com/fabrikam/99999999-9999-9999-9999-999999999999/_apis/git/repositories/88888888-8888-8888-8888-888888888888",
+      "project": {
+        "id": "99999999-9999-9999-9999-999999999999",
+        "name": "Backend",
+        "url": "https://dev.azure.com/fabrikam/_apis/projects/99999999-9999-9999-9999-999999999999",
+        "state": "wellFormed",
+        "revision": 7,
+        "visibility": "private",
+        "lastUpdateTime": "2026-10-20T10:00:00.000Z"
+      },
+      "defaultBranch": "refs/heads/main",
+      "size": 4096,
+      "remoteUrl": "https://fabrikam@dev.azure.com/fabrikam/Backend/_git/api",
+      "sshUrl": "git@ssh.dev.azure.com:v3/fabrikam/Backend/api",
+      "webUrl": "https://dev.azure.com/fabrikam/Backend/_git/api",
+      "isDisabled": false,
+      "isInMaintenance": false
+    }
+  ],
+  "count": 3
+}

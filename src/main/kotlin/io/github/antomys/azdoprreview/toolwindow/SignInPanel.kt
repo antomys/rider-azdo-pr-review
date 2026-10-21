@@ -3,8 +3,10 @@ package io.github.antomys.azdoprreview.toolwindow
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.ScrollPaneFactory
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
@@ -19,6 +21,7 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import io.github.antomys.azdoprreview.azdo.AzureDevOpsClient
+import io.github.antomys.azdoprreview.review.RepoRef
 import io.github.antomys.azdoprreview.toolwindow.SignInViewModel.State
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,27 +29,39 @@ import kotlinx.coroutines.launch
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Rectangle
+import javax.swing.DefaultComboBoxModel
 import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.Scrollable
 
 /**
- * Asks for the organization, a personal access token, the project and the repository, and signs in. Shown in place of
- * the pull request list. [reason] says why, when the saved token was rejected; [hasSavedPat] allows leaving the token
- * empty to try the saved one again.
+ * Asks for the organization and a personal access token, and signs in. Shown in place of the pull request list. The
+ * repository comes from the project's Git remote (or the settings), which [source] describes; without one, the
+ * repositories the token can read are offered once it validates. [reason] says why, when the saved token was rejected;
+ * [hasSavedPat] allows leaving the token empty to try the saved one again.
  */
 class SignInPanel(
     private val vm: SignInViewModel,
     scope: CoroutineScope,
-    initial: SignInFields,
+    initialOrganization: String,
+    source: String,
     reason: String?,
     hasSavedPat: Boolean,
 ) : JPanel(BorderLayout()) {
-    private val organization = JBTextField(initial.organization)
+    private val organization = JBTextField(initialOrganization)
     private val pat = JBPasswordField()
-    private val project = JBTextField(initial.project)
-    private val repository = JBTextField(initial.repository)
+    private val repositories = ComboBox<RepoRef>().apply {
+        renderer = object : SimpleListCellRenderer<RepoRef>() {
+            override fun customize(list: JList<out RepoRef>, value: RepoRef?, index: Int, selected: Boolean, hasFocus: Boolean) {
+                text = value?.let { "${it.project} / ${it.repository}" }.orEmpty()
+            }
+        }
+        isSwingPopup = false
+    }
+    private val open = JButton("Open").apply { addActionListener { choose() } }
+    private lateinit var chooseRow: Row
     private val signIn = JButton("Sign In").apply { addActionListener { signIn() } }
     private val progress = JBLabel("Checking the token…", AnimatedIcon.Default.INSTANCE, JBLabel.LEADING).apply { isVisible = false }
     private val error = wrapping("").apply { foreground = UIUtil.getErrorForeground() }
@@ -55,7 +70,7 @@ class SignInPanel(
     private lateinit var retryRow: Row
 
     init {
-        listOf(organization, pat, project, repository).forEach { it.addActionListener { signIn() } }
+        listOf(organization, pat).forEach { it.addActionListener { signIn() } }
         val content = panel {
             if (reason != null) {
                 row {
@@ -78,12 +93,15 @@ class SignInPanel(
                 )
             }
             row { link("Create token") { openTokenPage() } }
-            row("Project:") { cell(project).columns(COLUMNS_MEDIUM) }
-            row("Repository:") { cell(repository).columns(COLUMNS_MEDIUM) }
+            row { cell(wrapping(source)).align(AlignX.FILL).resizableColumn() }
             row {
                 cell(signIn)
                 cell(progress)
             }
+            chooseRow = row("Repository:") {
+                cell(repositories).columns(COLUMNS_MEDIUM)
+                cell(open)
+            }.visible(false)
             errorRow = row { cell(error).align(AlignX.FILL).resizableColumn() }.visible(false)
             retryRow = row { cell(retry) }.visible(false)
         }.apply { border = JBUI.Borders.empty(12, 16) }
@@ -94,7 +112,12 @@ class SignInPanel(
 
     private fun signIn() {
         if (vm.state.value == State.Validating) return
-        vm.signIn(SignInFields(organization.text, String(pat.password), project.text, repository.text))
+        vm.signIn(SignInFields(organization.text, String(pat.password)))
+    }
+
+    private fun choose() {
+        val repo = repositories.selectedItem as? RepoRef ?: return
+        vm.choose(repo)
     }
 
     private fun openTokenPage() {
@@ -109,13 +132,20 @@ class SignInPanel(
     private fun render(state: State) {
         val busy = state == State.Validating
         progress.isVisible = busy
-        listOf(organization, pat, project, repository, signIn).forEach { it.isEnabled = !busy }
+        listOf(organization, pat, signIn, repositories, open).forEach { it.isEnabled = !busy }
         when (state) {
             is State.Failed -> showError(state.message, retry = true)
             else -> {
                 errorRow.visible(false)
                 retryRow.visible(false)
             }
+        }
+        if (state is State.ChooseRepository) {
+            repositories.model = DefaultComboBoxModel(state.repositories.toTypedArray())
+            chooseRow.visible(true)
+            repositories.requestFocusInWindow()
+        } else if (state !is State.Validating) {
+            chooseRow.visible(false)
         }
         // The token isn't needed once it's saved or checked.
         if (state == State.SignedIn) pat.text = ""

@@ -12,9 +12,10 @@ The layout and interaction model follow JetBrains' bundled GitLab merge-request 
 ## Settings
 
 **Settings | Tools | Azure DevOps PR Review**
-- Organization: the name in `https://dev.azure.com/<organization>`, stored for the whole IDE.
-- Personal access token: stored in the IDE password storage, never shown. Leaving the field empty keeps the saved token. Required scopes: Code (Read & write), Identity (Read), Graph (Read).
-- Project and repository: stored per IDE project.
+- Organization: the name in `https://dev.azure.com/<organization>`, stored for the whole IDE; used for projects without an Azure DevOps Git remote.
+- Personal access token: stored in the IDE password storage, one per organization, never shown. Leaving the field empty keeps the saved token. Required scopes: Code (Read & write), Identity (Read), Graph (Read).
+- **Which repository (0.2.0):** the pull requests of the open project's Git repository. Its Azure DevOps remote (`origin` first) gives the organization, project and repository; the repository is found in the project folder or the nearest folder above it with a `.git`. Remote forms: `https://dev.azure.com/{org}/{project}/_git/{repo}`, the same with `{user}@`, `https://{org}.visualstudio.com/{project}/_git/{repo}`, and `git@ssh.dev.azure.com:v3/{org}/{project}/{repo}`.
+- Project and repository: stored per IDE project, and used only when the project has no Azure DevOps Git remote. A grey line above them says which applies: "This project's Git remote is {org} / {project} / {repo}: its pull requests are reviewed, and the fields below aren't used." or "This project has no Azure DevOps Git remote, so the pull requests of the repository below are reviewed."
 
 ## Tool window "Azure DevOps PR Review"
 
@@ -47,14 +48,16 @@ Docked on the left, with a merge icon. The first tab, "Pull Requests", is the li
 
 ### Sign-in panel
 
-Replaces the Pull Requests tab's content while the organization, token, project or repository isn't set, or after Azure DevOps rejected the saved token. There's no prompt at IDE startup.
-- Title "Sign in to Azure DevOps", then the fields **Organization**, **Personal access token** (masked), **Project** and **Repository**.
-  - For a project not set up yet, organization, project and repository are prefilled from the project's Git remote (`origin` first) when it is an Azure DevOps URL: `https://dev.azure.com/{org}/{project}/_git/{repo}`, the same with `{org}@`, `https://{org}.visualstudio.com/{project}/_git/{repo}`, or `git@ssh.dev.azure.com:v3/{org}/{project}/{repo}`. Otherwise they show the saved settings.
-  - When a token is saved, the token field can be left empty to use it ("Leave empty to use the saved token.").
+Replaces the Pull Requests tab's content while there's no token for the organization, no repository is known, or after Azure DevOps rejected the saved token. There's no prompt at IDE startup.
+- Title "Sign in to Azure DevOps", then only the fields **Organization** and **Personal access token** (masked).
+  - Organization comes from the project's Git remote (see Settings), or else the saved one.
+  - When a token is saved for that organization, the token field can be left empty to use it ("Leave empty to use the saved token.").
+- A line says which repository: "Pull requests of {project} / {repo}, from this project's Git remote.", "…, from the settings.", or, with neither, "This project has no Azure DevOps Git remote: after signing in, choose the repository to review."
 - The required scopes, and that tokens for all organizations stop working on 1 December 2026, so the token should be for this organization only.
 - **Create token** opens `https://dev.azure.com/<organization>/_usersSettings/tokens` for the organization in the field.
-- **Sign In** (or Enter in a field) first checks the token: whose it is, then access to the repository, with "Checking the token…".
-  - Success: saves the organization (IDE-wide), the token (password storage) and the project and repository (per project), then loads the list without a restart.
+- **Sign In** (or Enter in a field) first checks the token: whose it is, then access to the repository when it's known, with "Checking the token…".
+  - Success: saves the organization (IDE-wide) and the token (password storage, for that organization), then loads the list without a restart.
+  - Without a known repository: a **Repository** drop-down appears with every enabled repository the token can read ("{project} / {repo}", sorted), and **Open**. Choosing one saves the token and that repository for the IDE project, then loads the list. Nothing is saved before the choice. "The token can't read any repository in {org}." when there are none.
   - Failure: the error appears under the button with **Retry**; nothing is saved.
 - **Rejected token:** when any call (list, pull request tab, diff, timeline) is rejected (HTTP 401, a 203 sign-in page, or a redirect to sign-in) and the same token can't read its own user either, the panel shows "Azure DevOps rejected the token. It may have expired or been revoked." at the top, and the Pull Requests tab is selected.
   - The saved token is kept until a new one validates.

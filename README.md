@@ -77,15 +77,14 @@ From a checkout, `scripts/install-plugin.sh` also takes `--zip FILE` (a zip you 
 
 ### Connect to Azure DevOps
 
-Open the **Azure DevOps PR Review** tool window on the left. The first time, it shows a sign-in panel; the same fields are in **Settings | Tools | Azure DevOps PR Review**:
+Open the **Azure DevOps PR Review** tool window on the left. The first time, it asks for two things:
 
 | Field | What to enter |
 |---|---|
-| Organization | The name in `https://dev.azure.com/<organization>` |
+| Organization | The name in `https://dev.azure.com/<organization>`, already filled in from your Git remote |
 | Personal access token | A token with **Code (Read & write)**, **Identity (Read)** and **Graph (Read)** |
-| Project, Repository | The repository whose pull requests you review |
 
-When the project's Git remote is on Azure DevOps, organization, project and repository are filled in for you. **Sign In** checks the token before saving anything. If the token later expires or is revoked, the panel comes back and says so.
+The pull requests are those of the repository you have open: the plugin reads its Azure DevOps Git remote. Without one, you pick the repository from a list after signing in. **Sign In** checks the token before saving anything. If the token later expires or is revoked, the panel comes back and says so. The same settings are in **Settings | Tools | Azure DevOps PR Review**.
 
 > [!TIP]
 > Prefer a short-lived token scoped to one organization. Azure DevOps stops accepting global tokens on 1 December 2026.

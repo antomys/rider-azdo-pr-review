@@ -21,7 +21,7 @@ import io.github.antomys.azdoprreview.ai.ClaudeCodeReviewer
 import io.github.antomys.azdoprreview.ui.plainText
 import javax.swing.JLabel
 
-class AzureDevOpsConfigurable(project: Project) : BoundConfigurable(DISPLAY_NAME) {
+class AzureDevOpsConfigurable(private val project: Project) : BoundConfigurable(DISPLAY_NAME) {
     private val account = AzureDevOpsAccount.getInstance()
     private val settings = project.service<AzureDevOpsProjectSettings>()
     private val ai = AiReviewSettings.getInstance()
@@ -44,6 +44,17 @@ class AzureDevOpsConfigurable(project: Project) : BoundConfigurable(DISPLAY_NAME
             }
         }
         group("Repository") {
+            // The project's Git remote wins over these fields; a local file, read once when the page opens.
+            val remote = ReviewLocation.remote(project)
+            row {
+                comment(
+                    if (remote != null) {
+                        "This project's Git remote is ${remote.organization} / ${remote.project} / ${remote.repository}: its pull requests are reviewed, and the fields below aren't used."
+                    } else {
+                        "This project has no Azure DevOps Git remote, so the pull requests of the repository below are reviewed."
+                    },
+                )
+            }
             row("Project:") { textField().bindText(settings::project).columns(COLUMNS_MEDIUM) }
             row("Repository:") { textField().bindText(settings::repository).columns(COLUMNS_MEDIUM) }
         }

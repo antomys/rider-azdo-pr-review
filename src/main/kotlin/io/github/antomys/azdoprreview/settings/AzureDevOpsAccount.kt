@@ -24,11 +24,15 @@ class AzureDevOpsAccount : SimplePersistentStateComponent<AzureDevOpsAccount.Acc
             state.organization = value.trim().ifEmpty { null }
         }
 
-    /** Reads the password storage, which can be slow: call off the EDT. */
-    fun pat(): String? = organization.ifEmpty { null }?.let { PasswordSafe.instance.getPassword(credentials(it)) }
+    /** [organization]'s token, kept per organization. Reads the password storage, which can be slow: call off the EDT. */
+    fun pat(organization: String = this.organization): String? =
+        organization.ifEmpty { null }?.let { PasswordSafe.instance.getPassword(credentials(it)) }
 
     /** Writes the password storage, which can be slow: call off the EDT. */
-    fun setPat(pat: String) {
+    fun setPat(pat: String) = setPat(organization, pat)
+
+    /** Saves [pat] as [organization]'s token. Writes the password storage, which can be slow: call off the EDT. */
+    fun setPat(organization: String, pat: String) {
         val org = organization.ifEmpty { return }
         PasswordSafe.instance.setPassword(credentials(org), pat)
     }

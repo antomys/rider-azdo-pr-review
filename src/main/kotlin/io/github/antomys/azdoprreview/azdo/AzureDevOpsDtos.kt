@@ -47,6 +47,13 @@ data class GitPullRequestDto(
 @Serializable
 data class RepositoryRefDto(val id: String)
 
+/** An entry of `GET {org}/_apis/git/repositories`, which lists every project's repositories the token can read. */
+@Serializable
+data class GitRepositoryDto(val name: String, val project: ProjectRefDto, val isDisabled: Boolean? = null)
+
+@Serializable
+data class ProjectRefDto(val name: String)
+
 @Serializable
 data class LabelDto(val name: String, val active: Boolean = true)
 
