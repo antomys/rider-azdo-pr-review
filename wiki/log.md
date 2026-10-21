@@ -20,3 +20,5 @@ Operations:
 ## [2026-10-21] ingest | 0.2.0 features: unified diff view, F1 sign-in and rejected tokens, F2 Assigned to me, F3–F5 reviewed marks, update detection and update view, opt-in AI review (product baseline, engineering notes, risks, CLAUDE.md AI rule); 6 pages created, 16 updated
 
 ## [2026-10-21] update | repository from the open project's Git remote: sign-in asks only for organization and token, a repository drop-down without a remote, tokens per organization; sign-in and baseline source pages updated
+
+## [2026-10-21] update | v0.2.0 released from c3b870c; release-and-install page and CLAUDE.md current release updated
