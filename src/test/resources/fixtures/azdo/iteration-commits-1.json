@@ -1,0 +1,20 @@
+{
+  "value": [
+    {
+      "commitId": "751a09ebfae4b3c88fb27a8f47063b6b80860f2c",
+      "author": {
+        "name": "Test User",
+        "email": "test.user@example.com",
+        "date": "2026-10-20T14:09:13Z"
+      },
+      "committer": {
+        "name": "Test User",
+        "email": "test.user@example.com",
+        "date": "2026-10-20T14:09:13Z"
+      },
+      "comment": "Add Multiply and Greeter, remove Legacy, move notes",
+      "url": "https://dev.azure.com/fabrikam/203e9d76-da2b-4fb4-b2dc-2a1b45004a3d/_apis/git/repositories/c3ce6006-127f-41ef-94a9-71b2d23db326/commits/751a09ebfae4b3c88fb27a8f47063b6b80860f2c"
+    }
+  ],
+  "count": 1
+}

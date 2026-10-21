@@ -27,8 +27,10 @@ import io.github.antomys.azdoprreview.azdo.AzureDevOpsException
 import io.github.antomys.azdoprreview.review.FileChange
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.Companion.diffSides
+import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.Companion.sinceSides
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.DiffSide
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.State
+import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.Update
 import kotlinx.coroutines.CoroutineScope
 
 /** The pull request file a diff shows; [ReviewDiffExtension] uses it to add the file's threads to the viewer. */
@@ -44,6 +46,7 @@ object PullRequestDiff {
  */
 class ReviewDiff(private val project: Project, private val vm: PullRequestDetailsViewModel, private val scope: CoroutineScope) {
     private var file: ReviewDiffVirtualFile? = null
+    private var sinceFile: ReviewDiffVirtualFile? = null
     private val toolbar = ReviewDiffActions(project, vm, scope, this).actions
 
     /** Whether the diff tab is open. */
@@ -67,7 +70,27 @@ class ReviewDiff(private val project: Project, private val vm: PullRequestDetail
         val name = "PR #${vm.summary.ref.id}: ${vm.summary.title}"
         file = ReviewDiffVirtualFile(SimpleDiffRequestChain.fromProducers(producers, index), name, state).also { tabs.showDiffFile(it, focus) }
     }
+
+    /**
+     * Opens a separate tab with only the files changed since [update]'s earlier iteration, from that iteration's source
+     * commit to the latest one. It has no threads, comment gutter or review toolbar, and doesn't mark files viewed:
+     * threads are positioned against the merge base, so they don't line up with this diff's left side.
+     */
+    fun showSince(update: Update) {
+        val state = vm.state.value as? State.Loaded ?: return
+        val fromCommit = update.fromCommit ?: return
+        val files = update.files?.takeIf { it.isNotEmpty() } ?: return
+        val editors = FileEditorManager.getInstance(project)
+        sinceFile?.let(editors::closeFile)
+        val producers = files.map { FileDiffProducer(project, ReviewDiffFile(project, vm, scope, it), state, emptyList(), Since(update.from, fromCommit)) }
+        val name = "PR #${vm.summary.ref.id}: changes since iteration ${update.from}"
+        sinceFile = ReviewDiffVirtualFile(SimpleDiffRequestChain.fromProducers(producers, 0), name, state)
+            .also { DiffEditorTabFilesManager.getInstance(project).showDiffFile(it, true) }
+    }
 }
+
+/** The left side of a "changes since last view" diff: iteration [iteration], at its source commit [commit]. */
+private data class Since(val iteration: Int, val commit: String)
 
 /** Keeps the processor it creates, so the open tab can be switched to another file. */
 private class ReviewDiffVirtualFile(chain: DiffRequestChain, name: String, val state: State.Loaded) : ChainDiffVirtualFile(chain, name) {
@@ -83,6 +106,8 @@ private class FileDiffProducer(
     private val file: ReviewDiffFile,
     private val state: State.Loaded,
     private val toolbar: List<AnAction>,
+    /** Compare with this earlier iteration instead of the merge base; see [ReviewDiff.showSince]. */
+    private val since: Since? = null,
 ) : DiffRequestProducer {
     private val change = file.change
     private val target = file.vm.target
@@ -90,10 +115,14 @@ private class FileDiffProducer(
     override fun getName(): String = change.newPath ?: change.oldPath.orEmpty()
 
     override fun process(context: UserDataHolder, indicator: ProgressIndicator): DiffRequest {
-        val (left, right) = diffSides(change, state.revision)
-        val request = SimpleDiffRequest(name, content(left), content(right), title(left, "base"), title(right, "iteration ${state.revision.id}"))
-        request.putUserData(PullRequestDiff.FILE, file)
-        request.putUserData(DiffUserDataKeys.CONTEXT_ACTIONS, toolbar)
+        val (left, right) = since?.let { sinceSides(change, it.commit, state.revision) } ?: diffSides(change, state.revision)
+        val leftLabel = since?.let { "iteration ${it.iteration}" } ?: "base"
+        val request = SimpleDiffRequest(name, content(left), content(right), title(left, leftLabel), title(right, "iteration ${state.revision.id}"))
+        // Threads, the gutter and the toolbar belong to the diff against the merge base only.
+        if (since == null) {
+            request.putUserData(PullRequestDiff.FILE, file)
+            request.putUserData(DiffUserDataKeys.CONTEXT_ACTIONS, toolbar)
+        }
         return request
     }
 

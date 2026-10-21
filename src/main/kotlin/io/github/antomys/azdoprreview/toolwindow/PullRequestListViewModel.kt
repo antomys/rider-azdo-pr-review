@@ -1,10 +1,16 @@
 package io.github.antomys.azdoprreview.toolwindow
 
+import io.github.antomys.azdoprreview.review.Assignment
 import io.github.antomys.azdoprreview.review.ReviewFilter
+import io.github.antomys.azdoprreview.review.ReviewMark
+import io.github.antomys.azdoprreview.review.ReviewMarkStore
+import io.github.antomys.azdoprreview.review.ReviewMarks
+import io.github.antomys.azdoprreview.review.ReviewStatus
 import io.github.antomys.azdoprreview.review.ReviewState
 import io.github.antomys.azdoprreview.review.ReviewSummary
 import io.github.antomys.azdoprreview.review.ReviewTarget
 import io.github.antomys.azdoprreview.review.ReviewUser
+import io.github.antomys.azdoprreview.review.listAssignedToMe
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -15,10 +21,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * What the list shows. [state], [author] and [reviewer] are sent to the service; [label] and [search] filter the loaded
- * list. A null value doesn't filter.
+ * What the list shows. [state], [author], [reviewer] and [assignedToMe] are sent to the service; [label] and [search]
+ * filter the loaded list. A null value doesn't filter. Reviews marked reviewed are hidden unless [showReviewed].
  */
 data class ListFilters(
     val state: ReviewState? = ReviewState.OPEN,
@@ -26,6 +33,11 @@ data class ListFilters(
     val reviewer: ReviewUser? = null,
     val label: String? = null,
     val search: String = "",
+    /** Reviews where the user or one of their teams is a reviewer; used instead of [reviewer]. */
+    val assignedToMe: Boolean = false,
+    val showReviewed: Boolean = false,
+    /** With [assignedToMe]: also the reviews the user declined. */
+    val showDeclined: Boolean = false,
 ) {
     val isDefault: Boolean get() = this == ListFilters()
 
@@ -38,9 +50,13 @@ data class ListFilters(
     }
 }
 
-/** Loads the pull request list for the current filters, then each pull request's comment count. Swing-free. */
+/**
+ * Loads the pull request list for the current filters, then each pull request's comment count. Also keeps the user's
+ * local reviewed marks ([marksStore]) and clears those an update invalidated. Swing-free.
+ */
 class PullRequestListViewModel(
     private val scope: CoroutineScope,
+    private val marksStore: ReviewMarkStore = ReviewMarkStore.InMemory(),
     private val connect: suspend () -> ReviewTarget?,
 ) {
     sealed interface State {
@@ -62,6 +78,20 @@ class PullRequestListViewModel(
     private val _commentCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
     val commentCounts: StateFlow<Map<Int, Int>> = _commentCounts.asStateFlow()
 
+    /** The user's role and vote per pull request id, while [ListFilters.assignedToMe] is on. */
+    private val _assignments = MutableStateFlow<Map<Int, Assignment>>(emptyMap())
+    val assignments: StateFlow<Map<Int, Assignment>> = _assignments.asStateFlow()
+
+    /** A problem that didn't stop the list from loading, e.g. teams that couldn't be queried. */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    /** Changes whenever a review mark changes, here or in a pull request's tab; call [marksChanged] then. */
+    val markChanges: StateFlow<Long> get() = marksStore.changes
+
+    /** Stale marks already looked up for pruning in this session. */
+    private val pruneChecked: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
     /** The connection the current list was loaded with. */
     @Volatile
     var target: ReviewTarget? = null
@@ -77,11 +107,39 @@ class PullRequestListViewModel(
     fun setFilters(filters: ListFilters) {
         val old = _filters.value
         _filters.value = filters
-        if (old.state != filters.state || old.author?.id != filters.author?.id || old.reviewer?.id != filters.reviewer?.id) {
+        if (old.state != filters.state || old.author?.id != filters.author?.id || old.reviewer?.id != filters.reviewer?.id ||
+            old.assignedToMe != filters.assignedToMe
+        ) {
             refresh()
         } else {
-            _state.update { if (it is State.Loaded) it.copy(visible = it.reviews.filter(filters::matches)) else it }
+            marksChanged()
         }
+    }
+
+    /** Applies changed review marks to what the list shows. */
+    fun marksChanged() {
+        _state.update { if (it is State.Loaded) it.copy(visible = visible(it.reviews)) else it }
+    }
+
+    fun mark(review: ReviewSummary): ReviewMark? = marks()?.mark(review)
+
+    fun status(review: ReviewSummary): ReviewStatus = marks()?.status(review) ?: ReviewStatus.NEEDS_REVIEW
+
+    /** Loaded pull requests that the filters match but that are hidden because they are marked reviewed. */
+    fun hiddenReviewed(): Int {
+        val loaded = state.value as? State.Loaded ?: return 0
+        val filters = _filters.value
+        if (filters.showReviewed) return 0
+        return loaded.reviews.count { filters.matches(it) && status(it) == ReviewStatus.REVIEWED }
+    }
+
+    /** Marks [review] reviewed locally; see [ReviewMarks.markReviewed]. Nothing is sent to the service. */
+    suspend fun markReviewed(review: ReviewSummary, force: Boolean = false): ReviewMarks.MarkResult =
+        (marks() ?: error("The pull request list isn't loaded")).markReviewed(review, force).also { marksChanged() }
+
+    fun markNotReviewed(review: ReviewSummary) {
+        marks()?.markNotReviewed(review)
+        marksChanged()
     }
 
     /** Reloads the list, cancelling a load still in progress. */
@@ -97,7 +155,10 @@ class PullRequestListViewModel(
                 State.Failed(e.message ?: e.javaClass.simpleName)
             }
             _state.value = loaded
-            if (loaded is State.Loaded) loadCommentCounts(loaded.reviews)
+            if (loaded is State.Loaded) {
+                prune(loaded.reviews)
+                loadCommentCounts(loaded.reviews)
+            }
         }.also { loading = it }
     }
 
@@ -120,10 +181,51 @@ class PullRequestListViewModel(
         val previous = this.target
         val target = connect().also { target = it } ?: return State.NotConfigured
         // A new provider means a new sign-in, possibly as someone else.
-        if (me == null || target.provider !== previous?.provider) me = target.provider.currentUser()
+        val me = this.me.takeIf { target.provider === previous?.provider } ?: target.provider.currentUser().also { this.me = it }
         val filters = _filters.value
-        val reviews = target.provider.listReviews(target.repo, ReviewFilter(filters.state, filters.author?.id, filters.reviewer?.id))
-        return State.Loaded(reviews, reviews.filter(filters::matches))
+        val reviews = if (filters.assignedToMe) {
+            val assigned = target.provider.listAssignedToMe(target.repo, ReviewFilter(filters.state, filters.author?.id), me)
+            val assignments = assigned.reviews.mapNotNull { r -> Assignment.of(r, me, assigned.teams)?.let { r.ref.id to it } }.toMap()
+            _assignments.value = assignments
+            _notice.value = if (assigned.complete) null else "Some team assignments couldn't be loaded"
+            assigned.reviews.filter { it.ref.id in assignments }
+        } else {
+            _assignments.value = emptyMap()
+            _notice.value = null
+            target.provider.listReviews(target.repo, ReviewFilter(filters.state, filters.author?.id, filters.reviewer?.id))
+        }
+        marks()?.checkForUpdates(reviews)
+        return State.Loaded(reviews, visible(reviews))
+    }
+
+    /**
+     * [reviews] after the client-side filters. "Assigned to me" also hides declined reviews and sorts by review status
+     * (needs review, updated since review, reviewed), newest first within each.
+     */
+    private fun visible(reviews: List<ReviewSummary>): List<ReviewSummary> {
+        val filters = _filters.value
+        val shown = reviews.filter {
+            filters.matches(it) && (filters.showReviewed || status(it) != ReviewStatus.REVIEWED) &&
+                (!filters.assignedToMe || filters.showDeclined || _assignments.value[it.ref.id]?.declined != true)
+        }
+        if (!filters.assignedToMe) return shown
+        return shown.sortedWith(compareBy<ReviewSummary> { status(it) }.thenByDescending { it.created })
+    }
+
+    private fun marks(): ReviewMarks? {
+        val provider = target?.provider ?: return null
+        return ReviewMarks(marksStore, provider, (me ?: return null).id)
+    }
+
+    private suspend fun prune(reviews: List<ReviewSummary>) {
+        val target = target ?: return
+        try {
+            marks()?.prune(target.repo, reviews, pruneChecked)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Pruning is housekeeping; it never fails the list.
+        }
     }
 
     private suspend fun loadCommentCounts(reviews: List<ReviewSummary>) {

@@ -9,6 +9,7 @@ import io.github.antomys.azdoprreview.review.Page
 import io.github.antomys.azdoprreview.review.ProviderCapabilities
 import io.github.antomys.azdoprreview.review.RepoRef
 import io.github.antomys.azdoprreview.review.ReviewComment
+import io.github.antomys.azdoprreview.review.ReviewCommit
 import io.github.antomys.azdoprreview.review.ReviewDetails
 import io.github.antomys.azdoprreview.review.ReviewFilter
 import io.github.antomys.azdoprreview.review.ReviewProvider
@@ -19,6 +20,7 @@ import io.github.antomys.azdoprreview.review.ReviewThread
 import io.github.antomys.azdoprreview.review.ReviewUser
 import io.github.antomys.azdoprreview.review.Reviewer
 import io.github.antomys.azdoprreview.review.Revision
+import io.github.antomys.azdoprreview.review.RevisionReason
 import io.github.antomys.azdoprreview.review.Side
 import io.github.antomys.azdoprreview.review.ThreadAnchor
 import io.github.antomys.azdoprreview.review.ThreadStatus
@@ -33,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap
 class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvider {
     override val id = "azure-devops"
     override val capabilities = CAPABILITIES
+    override val organization: String = client.orgUrl.trimEnd('/').substringAfterLast('/')
 
     /** Request defaults (commentType, subjectKind, ...) are sent; null fields are left out. */
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
@@ -72,11 +75,37 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
 
     override suspend fun listRevisions(ref: ReviewRef): List<Revision> =
         get<ListDto<IterationDto>>(url(client.orgUrl, prPath(ref) + "/iterations", API)).value.map {
-            Revision(it.id, it.sourceRefCommit.commitId, it.targetRefCommit.commitId, it.commonRefCommit.commitId)
+            Revision(
+                it.id, it.sourceRefCommit.commitId, it.targetRefCommit.commitId, it.commonRefCommit.commitId,
+                created = it.createdDate?.let(Instant::parse),
+                reasons = it.reason.orEmpty().split(",").map { r -> r.trim() }.filter { r -> r.isNotEmpty() }.map(::reasonOf).toSet(),
+            )
         }
 
     override suspend fun listChanges(ref: ReviewRef, revision: Revision): List<FileChange> =
         changeEntries(ref, revision.id).map { it.toFileChange() }
+
+    override suspend fun listChanges(ref: ReviewRef, revision: Revision, compareTo: Int): List<FileChange> =
+        changeEntries(ref, revision.id, compareTo).map { it.toFileChange() }
+
+    /** Pages with `top`/`skip` (no `$`), at most 500 commits each; a short page is the last one. */
+    override suspend fun listCommits(ref: ReviewRef, revision: Int): List<ReviewCommit> {
+        val commits = mutableListOf<GitCommitRefDto>()
+        while (true) {
+            val page = get<ListDto<GitCommitRefDto>>(
+                url(client.orgUrl, prPath(ref) + "/iterations/$revision/commits", "top" to MAX_COMMITS_PAGE, "skip" to commits.size, API),
+            ).value
+            commits += page
+            if (page.size < MAX_COMMITS_PAGE) break
+        }
+        return commits.map {
+            ReviewCommit(it.commitId, it.comment.orEmpty().lineSequence().first(), it.author?.name, it.author?.date?.let(Instant::parse))
+        }
+    }
+
+    override suspend fun myTeams(repo: RepoRef): List<ReviewUser> =
+        get<ListDto<TeamDto>>(url(client.orgUrl, "/_apis/projects/${encode(repo.project)}/teams", "\$mine" to true, "\$top" to MAX_TEAMS, API))
+            .value.map { ReviewUser(it.id, it.name ?: it.id) }
 
     override suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray? = try {
         withContext(Dispatchers.Default) {
@@ -231,18 +260,25 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
     override fun webUrl(ref: ReviewRef): String =
         "${client.orgUrl}/${encode(ref.repo.project)}/_git/${encode(ref.repo.repository)}/pullrequest/${ref.id}"
 
-    private suspend fun changeEntries(ref: ReviewRef, iteration: Int): List<ChangeEntryDto> {
+    /** Against the merge base, or only the changes since iteration [compareTo] when given. */
+    private suspend fun changeEntries(ref: ReviewRef, iteration: Int, compareTo: Int? = null): List<ChangeEntryDto> {
         val entries = mutableListOf<ChangeEntryDto>()
         var skip = 0
         while (true) {
             val page = get<IterationChangesDto>(
-                url(client.orgUrl, prPath(ref) + "/iterations/$iteration/changes", "\$top" to MAX_CHANGES_PAGE, "\$skip" to skip, API),
+                url(
+                    client.orgUrl, prPath(ref) + "/iterations/$iteration/changes",
+                    "\$top" to MAX_CHANGES_PAGE, "\$skip" to skip, "\$compareTo" to compareTo, API,
+                ),
             )
             entries += page.changeEntries
             if (page.nextSkip == 0 && page.nextTop == 0) break
             skip = page.nextSkip
         }
-        trackingIds[ref to iteration] = entries.associate { (it.item.path ?: it.originalPath.orEmpty()) to it.changeTrackingId }
+        // A comparison lists only part of the files, so it mustn't replace the anchoring ids.
+        if (compareTo == null) {
+            trackingIds[ref to iteration] = entries.associate { (it.item.path ?: it.originalPath.orEmpty()) to it.changeTrackingId }
+        }
         return entries
     }
 
@@ -280,9 +316,12 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         labels = labels.orEmpty().filter { it.active }.map { it.name },
         reviewers = reviewers.map { it.toReviewer() },
         hasConflicts = mergeStatus == "conflicts",
+        repositoryId = repository?.id,
+        sourceCommit = lastMergeSourceCommit?.commitId,
     )
 
-    private fun ReviewerDto.toReviewer() = Reviewer(ReviewUser(id, displayName ?: id, uniqueName), voteOf(vote), isRequired)
+    private fun ReviewerDto.toReviewer() =
+        Reviewer(ReviewUser(id, displayName ?: id, uniqueName), voteOf(vote), isRequired, hasDeclined, votedFor.orEmpty().map { it.id })
 
     private fun ThreadDto.toThread(mentioned: Map<String, ReviewUser>) = ReviewThread(
         id = id,
@@ -309,6 +348,7 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
         private val GRAPH_API = "api-version" to "7.1-preview.1"
         private const val HEADS = "refs/heads/"
         private const val MAX_CHANGES_PAGE = 2000
+        private const val MAX_COMMITS_PAGE = 500
         private const val MAX_TEAMS = 100
         private const val MAX_TEAM_MEMBERS = 500
 
@@ -337,6 +377,17 @@ class AzureDevOpsProvider(private val client: AzureDevOpsClient) : ReviewProvide
             ReviewState.MERGED -> "completed"
             ReviewState.CLOSED -> "abandoned"
             null -> "all"
+        }
+
+        /** `IterationReason` names as the service writes them. */
+        private fun reasonOf(name: String) = when (name) {
+            "create" -> RevisionReason.CREATE
+            "push" -> RevisionReason.PUSH
+            "forcePush" -> RevisionReason.FORCE_PUSH
+            "rebase" -> RevisionReason.REBASE
+            "retarget" -> RevisionReason.RETARGET
+            "resolveConflicts" -> RevisionReason.RESOLVE_CONFLICTS
+            else -> RevisionReason.UNKNOWN
         }
 
         private fun voteOf(vote: Int) = when {

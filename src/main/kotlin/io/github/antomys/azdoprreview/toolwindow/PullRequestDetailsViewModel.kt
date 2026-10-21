@@ -1,7 +1,11 @@
 package io.github.antomys.azdoprreview.toolwindow
 
 import io.github.antomys.azdoprreview.review.FileChange
+import io.github.antomys.azdoprreview.review.ReviewCommit
 import io.github.antomys.azdoprreview.review.ReviewDetails
+import io.github.antomys.azdoprreview.review.ReviewMarkStore
+import io.github.antomys.azdoprreview.review.ReviewMarks
+import io.github.antomys.azdoprreview.review.ReviewStatus
 import io.github.antomys.azdoprreview.review.ReviewSummary
 import io.github.antomys.azdoprreview.review.ReviewTarget
 import io.github.antomys.azdoprreview.review.ReviewThread
@@ -18,10 +22,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * One pull request: details, the files changed in its latest iteration, its threads, and the user's viewed marks.
+ * Loading it records the latest iteration as the user's last viewed one in [marksStore], and reports what changed since
+ * the previous view in [update].
  * Write operations are suspend functions that throw on failure, so the caller can show the error where it happened.
  */
 class PullRequestDetailsViewModel(
@@ -29,6 +36,8 @@ class PullRequestDetailsViewModel(
     val target: ReviewTarget,
     val summary: ReviewSummary,
     private val viewedFiles: ViewedFiles = ViewedFiles.InMemory(),
+    private val marksStore: ReviewMarkStore = ReviewMarkStore.InMemory(),
+    private val clock: () -> Instant = Instant::now,
 ) {
     sealed interface State {
         data object Loading : State
@@ -39,6 +48,29 @@ class PullRequestDetailsViewModel(
 
     /** One side of a file diff: the file at [path] in [commit]. */
     data class DiffSide(val path: String, val commit: String)
+
+    /**
+     * What changed between iteration [from], the one the user viewed before, and [latest]: the [iterations] after it,
+     * oldest first, and, once loaded, the new [commits] and the [files] changed in between. [fromCommit] is [from]'s
+     * source commit, the left side of the "changes since last view" diff.
+     */
+    data class Update(
+        val from: Int,
+        val fromCommit: String?,
+        val latest: Revision,
+        val iterations: List<Revision>,
+        val commits: List<ReviewCommit>? = null,
+        val files: List<FileChange>? = null,
+        val error: String? = null,
+    ) {
+        val title: String get() = "Updated: iteration $from → ${latest.id}"
+
+        /** "1 new commit", once loaded. */
+        val commitsText: String? get() = commits?.let { count(it.size, "new commit") }
+
+        /** "2 files changed", once loaded. */
+        val filesText: String? get() = files?.let { count(it.size, "file") + " changed" }
+    }
 
     private val _state = MutableStateFlow<State>(State.Loading)
     val state: StateFlow<State> = _state.asStateFlow()
@@ -69,6 +101,15 @@ class PullRequestDetailsViewModel(
     val drafts: StateFlow<List<DraftComment>> = _drafts.asStateFlow()
     private val draftIds = AtomicLong()
 
+    private val _update = MutableStateFlow<Update?>(null)
+
+    /** What changed since the user last viewed the pull request; null when nothing did, or once dismissed. */
+    val update: StateFlow<Update?> = _update.asStateFlow()
+
+    /** The iteration the update is shown from; kept across refreshes of this tab until dismissed. */
+    @Volatile
+    private var updateFrom: Int? = null
+
     private var loading: Job? = null
 
     fun refresh(): Job {
@@ -82,8 +123,27 @@ class PullRequestDetailsViewModel(
             } catch (e: Exception) {
                 State.Failed(e.message ?: e.javaClass.simpleName)
             }
+            loadUpdate()
         }.also { loading = it }
     }
+
+    fun dismissUpdate() {
+        updateFrom = null
+        _update.value = null
+    }
+
+    /** Whether the user marked this pull request reviewed (locally). */
+    fun isMarkedReviewed(): Boolean = marks()?.status(summary) == ReviewStatus.REVIEWED
+
+    /** Marks the pull request reviewed locally; see [ReviewMarks.markReviewed]. Nothing is sent to the service. */
+    suspend fun markReviewed(force: Boolean = false): ReviewMarks.MarkResult =
+        (marks() ?: error("The pull request isn't loaded")).markReviewed(summary, force)
+
+    fun markNotReviewed() {
+        marks()?.markNotReviewed(summary)
+    }
+
+    private fun marks(): ReviewMarks? = me()?.let { ReviewMarks(marksStore, target.provider, it.id, clock) }
 
     fun webUrl(): String = reviewKey
 
@@ -282,11 +342,49 @@ class PullRequestDetailsViewModel(
     private suspend fun load(): State {
         val provider = target.provider
         val details = provider.getReview(summary.ref)
-        val revision = provider.listRevisions(summary.ref).maxByOrNull { it.id }
-            ?: return State.Failed("The pull request has no iterations yet")
+        val revisions = provider.listRevisions(summary.ref)
+        val revision = revisions.maxByOrNull { it.id } ?: return State.Failed("The pull request has no iterations yet")
         val changes = provider.listChanges(summary.ref, revision).sortedWith(compareBy({ it.path.substringBeforeLast('/') }, { it.path }))
         _threads.value = provider.listThreads(summary.ref, revision)
-        return State.Loaded(details, revision, changes, provider.currentUser())
+        val me = provider.currentUser()
+        recordView(me, revisions, revision)
+        return State.Loaded(details, revision, changes, me)
+    }
+
+    /**
+     * Works out the update since the previously recorded view first, then records this view, which also clears a
+     * reviewed mark that a new iteration invalidated.
+     */
+    private fun recordView(me: ReviewUser, revisions: List<Revision>, latest: Revision) {
+        val before = ReviewMarks(marksStore, target.provider, me.id, clock).viewed(summary, revisions)
+        val from = (updateFrom ?: before?.lastViewedIteration)?.takeIf { it < latest.id }
+        updateFrom = from
+        _update.value = from?.let {
+            Update(
+                from = it,
+                fromCommit = revisions.firstOrNull { r -> r.id == it }?.sourceCommit ?: before?.lastViewedSourceCommit,
+                latest = latest,
+                iterations = revisions.filter { r -> r.id > it }.sortedBy { r -> r.id },
+            )
+        }
+    }
+
+    /** The commits and files of [update]: commits in the latest iteration that the viewed one lacks, and the file delta. */
+    private suspend fun loadUpdate() {
+        val update = _update.value?.takeIf { it.files == null } ?: return
+        val loaded = try {
+            val seen = target.provider.listCommits(summary.ref, update.from).map { it.id }.toSet()
+            val commits = target.provider.listCommits(summary.ref, update.latest.id).filterNot { it.id in seen }
+            val files = target.provider.listChanges(summary.ref, update.latest, update.from)
+                .sortedWith(compareBy({ it.path.substringBeforeLast('/') }, { it.path }))
+            update.copy(commits = commits, files = files)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            update.copy(error = e.message ?: e.javaClass.simpleName)
+        }
+        // Dismissed or replaced meanwhile: keep that.
+        _update.compareAndSet(update, loaded)
     }
 
     companion object {
@@ -306,6 +404,20 @@ class PullRequestDetailsViewModel(
         /** Left: the file at the merge base; right: the file in the revision. Null for a side where it doesn't exist. */
         fun diffSides(change: FileChange, revision: Revision): Pair<DiffSide?, DiffSide?> =
             change.oldPath?.let { DiffSide(it, revision.baseCommit) } to change.newPath?.let { DiffSide(it, revision.sourceCommit) }
+
+        /**
+         * For a change listed since an earlier iteration: left, the file at that iteration's source commit [fromCommit];
+         * right, the file in [revision].
+         */
+        fun sinceSides(change: FileChange, fromCommit: String, revision: Revision): Pair<DiffSide?, DiffSide?> =
+            change.oldPath?.let { DiffSide(it, fromCommit) } to change.newPath?.let { DiffSide(it, revision.sourceCommit) }
+
+        /** "Iteration 2 · <date> · push": the iteration, when it was created and why, as far as known. */
+        fun iterationLine(revision: Revision, formatDate: (Instant) -> String): String =
+            listOfNotNull("Iteration ${revision.id}", revision.created?.let(formatDate), revision.reasons.sortedBy { it.ordinal }.joinToString { it.label }.ifEmpty { null })
+                .joinToString(" · ")
+
+        fun count(n: Int, noun: String) = "$n $noun" + if (n == 1) "" else "s"
     }
 }
 

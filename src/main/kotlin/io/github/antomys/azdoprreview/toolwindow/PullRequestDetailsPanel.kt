@@ -7,6 +7,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
@@ -32,7 +33,9 @@ import io.github.antomys.azdoprreview.review.ReviewState
 import io.github.antomys.azdoprreview.review.ReviewUser
 import io.github.antomys.azdoprreview.review.Vote
 import io.github.antomys.azdoprreview.settings.AiReviewSettings
+import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.Companion.iterationLine
 import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.State
+import io.github.antomys.azdoprreview.toolwindow.PullRequestDetailsViewModel.Update
 import io.github.antomys.azdoprreview.ui.Avatars
 import io.github.antomys.azdoprreview.ui.MarkdownPane
 import io.github.antomys.azdoprreview.ui.VoteIcons
@@ -43,9 +46,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.awt.BorderLayout
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Rectangle
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -69,6 +75,13 @@ class PullRequestDetailsPanel(
 ) : SimpleToolWindowPanel(true, true) {
     private val avatars = Avatars.of(vm.target.provider)
     private val header = JPanel(VerticalLayout(JBUI.scale(8))).apply { isOpaque = false }
+
+    /** What changed since the user last opened the pull request; hidden when nothing did. */
+    private val banner = JPanel(VerticalLayout(JBUI.scale(4))).apply {
+        isVisible = false
+        background = JBUI.CurrentTheme.Banner.INFO_BACKGROUND
+        border = JBUI.Borders.compound(JBUI.Borders.customLine(JBUI.CurrentTheme.Banner.INFO_BORDER_COLOR), JBUI.Borders.empty(6, 10))
+    }
     private val files = ReviewFilesTree(vm, scope) { diff.show(it, focus = true) }
     private var showDetails = false
 
@@ -101,6 +114,7 @@ class PullRequestDetailsPanel(
             if (change != vm.shownFile.value && diff.isOpen()) diff.show(change, focus = false)
         }
         val column = ScrollableColumn().apply {
+            add(banner)
             add(header)
             add(files)
         }
@@ -112,6 +126,7 @@ class PullRequestDetailsPanel(
         })
 
         scope.launch(Dispatchers.EDT) { vm.state.collect { renderHeader() } }
+        scope.launch(Dispatchers.EDT) { vm.update.collect(::renderBanner) }
         scope.launch(Dispatchers.EDT) { vm.shownFile.collect { shown -> shown?.takeIf { it != files.selectedChange() }?.let(files::select) } }
     }
 
@@ -146,6 +161,60 @@ class PullRequestDetailsPanel(
         header.revalidate()
         header.repaint()
     }
+
+    /**
+     * "Updated: iteration N → M" with the iterations since, the new commits and the changed files, and links to the diff
+     * of just those changes or of all of them.
+     */
+    private fun renderBanner(update: Update?) {
+        banner.removeAll()
+        banner.isVisible = update != null
+        if (update != null) {
+            banner.add(JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(JBLabel(update.title).apply { font = JBFont.label().asBold() }, BorderLayout.CENTER)
+                add(JBLabel(AllIcons.Actions.Close).apply {
+                    toolTipText = "Dismiss"
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    addMouseListener(object : MouseAdapter() {
+                        override fun mouseClicked(e: MouseEvent) = vm.dismissUpdate()
+                    })
+                }, BorderLayout.EAST)
+            })
+            update.iterations.forEach { banner.add(grey(iterationLine(it) { time -> DateFormatUtil.formatPrettyDateTime(time.toEpochMilli()) })) }
+            val commits = update.commits
+            val files = update.files
+            when {
+                update.error != null -> banner.add(JBLabel("Couldn't load the changes: ${update.error}").plainText().apply { foreground = UIUtil.getErrorForeground() })
+                commits == null || files == null -> banner.add(grey("Loading changes…"))
+                else -> {
+                    banner.add(JBLabel(update.commitsText.orEmpty()))
+                    items(commits.map { "${it.id.take(8)} ${it.message}" })
+                    banner.add(JBLabel(update.filesText.orEmpty()))
+                    items(files.map { it.path })
+                    banner.add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(12), 0)).apply {
+                        isOpaque = false
+                        add(ActionLink("Show changes since last view") { diff.showSince(update) }.apply {
+                            isEnabled = files.isNotEmpty() && update.fromCommit != null
+                        })
+                        add(ActionLink("Show all changes") {
+                            (vm.state.value as? State.Loaded)?.changes?.firstOrNull()?.let { diff.show(it, focus = true) }
+                        })
+                    })
+                }
+            }
+        }
+        banner.revalidate()
+        banner.repaint()
+    }
+
+    /** Up to [MAX_UPDATE_ITEMS] lines of service text, then "and N more". */
+    private fun items(lines: List<String>) {
+        lines.take(MAX_UPDATE_ITEMS).forEach { banner.add(grey(it).apply { border = JBUI.Borders.emptyLeft(12) }) }
+        if (lines.size > MAX_UPDATE_ITEMS) banner.add(grey("and ${lines.size - MAX_UPDATE_ITEMS} more").apply { border = JBUI.Borders.emptyLeft(12) })
+    }
+
+    private fun grey(text: String) = JBLabel(text).plainText().apply { foreground = UIUtil.getContextHelpForeground() }
 
     /** Author, state, description and reviewers. */
     private fun details(state: State.Loaded): JComponent {
@@ -269,6 +338,13 @@ class PullRequestDetailsPanel(
                     ) == Messages.YES
                     if (ok) send { vm.abandon() }
                 },
+                Separator.getInstance(),
+                // Local marks: only the one that applies is offered.
+                if (vm.isMarkedReviewed()) {
+                    action("Mark as Not Reviewed") { vm.markNotReviewed() }
+                } else {
+                    action("Mark as Reviewed") { MarkReviewed.run(scope, anchor, { force -> vm.markReviewed(force) }) { vm.refresh() } }
+                },
             )
             if (AiReviewSettings.getInstance().enabled) {
                 group.addSeparator()
@@ -351,6 +427,7 @@ class PullRequestDetailsPanel(
         private const val AVATAR_SIZE = 20
         private const val SMALL_AVATAR = 16
         private const val MAX_AVATARS = 3
+        private const val MAX_UPDATE_ITEMS = 10
 
         private val MARKDOWN_SPECIAL = Regex("""[\\`*_{}\[\]()#+\-.!<>|~]""")
 
