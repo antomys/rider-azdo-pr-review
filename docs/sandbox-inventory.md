@@ -65,3 +65,14 @@ Added by the owner while reviewing the plugin UI, on PR 9: thread 29 (`/src/Inve
 | PR 7 threads 33–34 | System threads: voted 5; changed to an optional reviewer (the bug this test found: the vote request left out `isRequired`) |
 | PR 7 reviewers | Restored through the API to the seeded state: test identity required, no vote (adds a system thread) |
 | PR 7 thread 14, comment 1 | Text edited through the API, to show the "updated" time |
+
+## Changed 2026-10-20 (UI test of drafts and Submit Review, PR 7)
+
+| Artifact | Details |
+|---|---|
+| PR 7 threads 35–36 | System threads from the earlier restore: voted 0; changed to a required reviewer |
+| PR 7 thread 37 | Line comment on `/src/Pricing/PriceCalculator.cs` line 16, written as a draft, edited, then sent by Submit Review |
+| PR 7 thread 14, comment 2 | Reply written as a draft, sent by the same Submit Review |
+| PR 7 thread 38 | Summary comment of that review |
+| PR 7 thread 39 | System thread: voted -5 ("Request Changes") |
+| PR 7 thread 40 | System thread: vote reset to 0 through the API; the test identity stays a required reviewer |
