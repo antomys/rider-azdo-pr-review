@@ -4,6 +4,7 @@ import com.intellij.diff.DiffContext
 import com.intellij.diff.DiffExtension
 import com.intellij.diff.FrameDiffTool
 import com.intellij.diff.requests.DiffRequest
+import com.intellij.diff.tools.fragmented.UnifiedDiffViewer
 import com.intellij.diff.tools.util.base.DiffViewerBase
 import com.intellij.diff.tools.util.base.DiffViewerListener
 import com.intellij.diff.tools.util.side.OnesideTextDiffViewer
@@ -53,7 +54,7 @@ import com.intellij.diff.util.Side as EditorSide
 /**
  * Shows a pull request file's threads and pending drafts inside its diff, a comment marker in the gutter of each line
  * that has them, and a gutter "+" to start new ones (saved as drafts unless posted at once).
- * Side-by-side diffs and the one-sided view of added or deleted files are supported; the unified view is not yet.
+ * Side-by-side diffs, the one-sided view of added or deleted files and the unified view are supported.
  */
 class ReviewDiffExtension : DiffExtension() {
     override fun onViewerCreated(viewer: FrameDiffTool.DiffViewer, context: DiffContext, request: DiffRequest) {
@@ -63,16 +64,22 @@ class ReviewDiffExtension : DiffExtension() {
         val editors: (EditorSide) -> EditorEx? = when (viewer) {
             is TwosideTextDiffViewer -> viewer::getEditor
             is OnesideTextDiffViewer -> { side -> viewer.editor.takeIf { side == viewer.side } }
+            is UnifiedDiffViewer -> { _ -> viewer.editor }
             else -> return
         }
-        DiffThreads(viewer, editors, file).install()
+        DiffThreads(viewer, editors, file, (viewer as? UnifiedDiffViewer)?.let(UnifiedLines::of)).install()
     }
 }
 
+/**
+ * The review UI of one diff viewer, disposed with it. [unified] is the line mapping of a unified viewer, whose one editor
+ * shows both sides; it is null when each side has its own editor and editor lines are that side's lines.
+ */
 private class DiffThreads(
     private val viewer: FrameDiffTool.DiffViewer,
     private val editors: (EditorSide) -> EditorEx?,
     private val file: ReviewDiffFile,
+    private val unified: UnifiedLines?,
 ) {
     private val change = file.change
     private val threadInlays = mutableListOf<Inlay<*>>()
@@ -88,6 +95,8 @@ private class DiffThreads(
         )
         (viewer as? DiffViewerBase)?.addListener(object : DiffViewerListener() {
             override fun onAfterRediff() {
+                // The unified viewer rewrites its document on every rediff, so its threads are laid out again.
+                if (unified != null) render(file.vm.threads.value, file.vm.drafts.value)
                 if (ready) return
                 ready = true
                 SwingUtilities.invokeLater(::scrollToPending)
@@ -98,7 +107,13 @@ private class DiffThreads(
             threadInlays.forEach(Disposer::dispose)
             clearMarkers()
         }
-        Side.entries.forEach { side -> editor(side)?.let { installGutter(side, it) } }
+        if (unified == null) {
+            Side.entries.forEach { side -> editor(side)?.let { editor -> installGutter(editor) { side } } }
+        } else {
+            (editor(Side.RIGHT) ?: editor(Side.LEFT))?.let { editor ->
+                installGutter(editor) { line -> unified.sideAt(line)?.side?.takeIf { path(it) != null } }
+            }
+        }
     }
 
     private fun isOnThisFile(thread: ReviewThread) = thread.anchor?.path?.let { it == change.newPath || it == change.oldPath } == true
@@ -108,14 +123,19 @@ private class DiffThreads(
     /** Scrolls to the thread the user asked to see, if it's on this file. */
     private fun scrollToPending() {
         val thread = file.vm.pendingNavigation.value?.takeIf(::isOnThisFile) ?: return
-        val editor = editor(sideOf(thread)) ?: return
-        val line = ((thread.anchor?.lines?.start ?: 1) - 1).coerceIn(0, maxOf(editor.document.lineCount - 1, 0))
+        val side = sideOf(thread)
+        val editor = editor(side) ?: return
+        val line = ((editorLine(side, thread.anchor?.lines?.start ?: 1) ?: 1) - 1).coerceIn(0, maxOf(editor.document.lineCount - 1, 0))
         editor.caretModel.moveToLogicalPosition(LogicalPosition(line, 0))
         editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
         file.vm.navigated(thread)
     }
 
     private fun path(side: Side) = if (side == Side.LEFT) change.oldPath else change.newPath
+
+    /** The 1-based editor line that shows 1-based [line] of [side]: the same line unless the view is unified; null if not shown. */
+    private fun editorLine(side: Side, line: Int): Int? =
+        if (unified == null) line else unified.toUnified(side, line - 1).takeIf { it >= 0 }?.plus(1)
 
     private fun editor(side: Side): EditorEx? =
         path(side)?.let { editors(if (side == Side.LEFT) EditorSide.LEFT else EditorSide.RIGHT) }
@@ -129,17 +149,21 @@ private class DiffThreads(
         clearMarkers()
         threads.filter { !it.isSystem && isOnThisFile(it) && it.comments.any { c -> !c.isDeleted } }.forEach { thread ->
             val lines = thread.anchor!!.lines
-            val editor = editor(sideOf(thread)) ?: return@forEach
+            val side = sideOf(thread)
+            val editor = editor(side) ?: return@forEach
+            val line = lines?.let { editorLine(side, it.end) ?: return@forEach }
             val replies = drafts.filter { it.replyTo == thread.id }
             val panel = ThreadPanel(file.project, thread, file.vm, file.scope, UIUtil.getPanelBackground(), drafts = replies, replyAsDraft = true)
-            threadInlays += addInlay(editor, panel, lines?.end, above = lines == null)
-            lines?.let { mark(editor, it.end, thread.comments.count { c -> !c.isDeleted } + replies.size) }
+            threadInlays += addInlay(editor, panel, line, above = lines == null)
+            line?.let { mark(editor, it, thread.comments.count { c -> !c.isDeleted } + replies.size) }
         }
         drafts.filter(::isOnThisFile).forEach { draft ->
             val lines = draft.anchor!!.lines
-            val editor = editor(lines?.side ?: if (change.newPath != null) Side.RIGHT else Side.LEFT) ?: return@forEach
-            threadInlays += addInlay(editor, boxed(DraftPanel(file.project, draft, file.vm, file.scope)), lines?.end, above = lines == null)
-            lines?.let { mark(editor, it.end, 1) }
+            val side = lines?.side ?: if (change.newPath != null) Side.RIGHT else Side.LEFT
+            val editor = editor(side) ?: return@forEach
+            val line = lines?.let { editorLine(side, it.end) ?: return@forEach }
+            threadInlays += addInlay(editor, boxed(DraftPanel(file.project, draft, file.vm, file.scope)), line, above = lines == null)
+            line?.let { mark(editor, it, 1) }
         }
     }
 
@@ -153,7 +177,8 @@ private class DiffThreads(
     }
 
     private fun clearMarkers() {
-        markers.forEach { (editor, highlighter) -> editor.markupModel.removeHighlighter(highlighter) }
+        // A unified rediff replaces the document, which can already have removed a highlighter.
+        markers.forEach { (editor, highlighter) -> if (highlighter.isValid) editor.markupModel.removeHighlighter(highlighter) }
         markers.clear()
     }
 
@@ -169,16 +194,18 @@ private class DiffThreads(
         return EditorEmbeddedComponentManager.getInstance().addComponent(editor, frame, properties)!!.also { frame.inlay = it }
     }
 
-    private fun installGutter(side: Side, editor: EditorEx) {
+    /** Shows a "+" on the hovered line of [editor]; [sideAt] tells which side a comment on a 0-based editor line goes to. */
+    private fun installGutter(editor: EditorEx, sideAt: (Int) -> Side?) {
         var hover: RangeHighlighter? = null
         fun clear() {
-            hover?.let(editor.markupModel::removeHighlighter)
+            hover?.takeIf { it.isValid }?.let(editor.markupModel::removeHighlighter)
             hover = null
         }
         editor.addEditorMouseMotionListener(object : EditorMouseMotionListener {
             override fun mouseMoved(e: EditorMouseEvent) {
                 val line = e.logicalPosition.line
                 if (line >= editor.document.lineCount) return clear()
+                val side = sideAt(line) ?: return clear()
                 if (hover?.let { editor.document.getLineNumber(it.startOffset) } == line) return
                 clear()
                 hover = editor.markupModel.addLineHighlighter(line, HighlighterLayer.LAST, null).apply {
@@ -191,13 +218,13 @@ private class DiffThreads(
         }, viewer)
     }
 
-    /** Opens a new-thread editor below [line] (0-based), covering the selection when it includes that line. */
+    /** Opens a new-thread editor below editor [line] (0-based), covering the selection when it includes that line. */
     private fun startThread(side: Side, line: Int) {
         val editor = editor(side) ?: return
         val path = path(side) ?: return
         val selection = editor.selectionModel
         val document = editor.document
-        val (start, end) = if (selection.hasSelection()) {
+        var (start, end) = if (selection.hasSelection()) {
             val first = document.getLineNumber(selection.selectionStart)
             var last = document.getLineNumber(selection.selectionEnd)
             if (last > first && selection.selectionEnd == document.getLineStartOffset(last)) last--
@@ -205,6 +232,13 @@ private class DiffThreads(
         } else {
             line to line
         }
+        if (unified != null) {
+            // Those are unified lines; the comment goes on the clicked line's side (see UnifiedLines.commentRange).
+            val range = unified.commentRange(side, start, end) ?: return
+            start = range.first
+            end = range.last
+        }
+        val below = editorLine(side, end + 1) ?: return
         var inlay: Inlay<*>? = null
         val anchor = ThreadAnchor(path, LineRange(side, start + 1, end + 1))
         val composer = CommentComposer(
@@ -221,7 +255,7 @@ private class DiffThreads(
             }),
             cancel = { inlay?.let(Disposer::dispose) },
         )
-        inlay = addInlay(editor, boxed(composer), end + 1, above = false)
+        inlay = addInlay(editor, boxed(composer), below, above = false)
         Disposer.register(viewer, inlay)
         SwingUtilities.invokeLater { composer.focus() }
     }

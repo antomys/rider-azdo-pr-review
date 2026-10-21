@@ -39,6 +39,14 @@ Facts verified while building 0.1.0 (2026-10-20), against Rider 2026.2.2 (`RD-26
 - **Initial scroll in a diff:** wait for `DiffViewerListener.onAfterRediff`, then `invokeLater`.
 - **collaboration-tools:** `ReviewListComponentFactory` and `ReviewListSearchPanelFactory` are `@ApiStatus.Internal`, and `CommentInputActionsComponentFactory` is scheduled for removal. The plugin builds its own list, chips and comment components.
 - **Public API used:** `PopupShowOptions.aboveComponent` and `TextFieldWithCompletion` carry no API-status annotation in 262.
+- **Unified diff viewer** (`com.intellij.diff.tools.fragmented.UnifiedDiffViewer`, in `lib/intellij.platform.diff.impl.jar`), checked with `javap` on 262.10315.191:
+  - the class, its package and the methods used carry no `ApiStatus` annotation (only `myModel`, `createUi` and `getDifferenceIterable` are `@Internal`);
+  - one editor (`getEditor()`) shows both sides; `getDocument(Side)` is each side's own document;
+  - `transferLineToOnesideStrict(side, line)` maps a 0-based side line to the unified line (`LineNumberConvertor.convertInv`), and `transferLineFromOnesideStrict(side, line)` the reverse (`convert`). Both return -1 when the line isn't on that side or before the first diff is computed (no convertor). The non-strict variants approximate instead;
+  - every rediff replaces the whole unified document (`Document.setText` in `apply`), then `onAfterRediff` and the listeners' `onAfterRediff` run. Inlays and highlighters placed before must be laid out again after each rediff;
+  - switching viewers (`DiffRequestProcessor.switchToDiffTool` → `updateRequest(true)`) creates a new viewer, and the processor's `createState` calls `DiffExtension.onViewerCreated` for each viewer it creates; the old viewer is disposed, taking everything registered with it;
+  - `DiffDataKeys.DIFF_VIEWER` is public (its neighbours `NAVIGATION_CALLBACK`, `PREV_NEXT_DIFFERENCE_ITERABLE`, `CROSS_FILE_PREV_NEXT_DIFFERENCE_ITERABLE` and `PREV_NEXT_FILE_ITERABLE` are `@Internal`); `DiffRequestProcessor$DefaultState` provides it. That it reaches the diff toolbar's context actions is **UNVERIFIED** at runtime.
+  - Whether a composer inlay opened before a unified rediff (e.g. after changing the whitespace setting) keeps its line is **UNVERIFIED**.
 
 ## Azure DevOps REST (api-version 7.1), verified in the sandbox
 
