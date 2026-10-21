@@ -17,6 +17,8 @@ To update, install the newer zip the same way.
 - [Plan and specification](docs/plan.md)
 - [Risks](docs/risks.md)
 - [Open decisions](docs/open-decisions.md)
+- [F1–F5: sign-in, assigned to me, reviewed marking, update detection, update view](docs/features/F1-F5.md)
+- [Sandbox plan](docs/sandbox-plan.md)
 
 ## Build
 
