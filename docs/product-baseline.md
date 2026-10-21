@@ -96,6 +96,11 @@ Closing the details tab closes its timeline tab.
   - **Submit Review…**, or **Submit Review (N)…** with pending drafts.
   - **↑ / ↓**: previous or next comment, in file order then line order. It moves across files and puts the caret on the thread's line.
   - When the editor is narrow, the platform moves the last actions into the toolbar's › overflow.
+- **Unified view** (the platform's viewer switcher in the diff toolbar) shows the same threads, drafts, markers and gutter **+**:
+  - a base-side (left) thread sits under its deleted or unchanged line, an iteration-side (right) thread under its inserted or unchanged line; file-level threads above the first line;
+  - the **+** on a deleted line comments on the base side, on an inserted or unchanged line on the iteration side, as in Azure DevOps. With a selection, the comment takes the clicked line's side and covers the selected lines that side has;
+  - **↑ / ↓** order the shown file's threads by where they appear in the unified editor, then move across files as in side-by-side;
+  - switching between side-by-side and unified while the diff is open shows the review UI in the new view.
 
 ## Comments
 
