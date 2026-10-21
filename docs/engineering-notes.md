@@ -38,7 +38,7 @@ Facts verified while building 0.1.0 (2026-10-20), against Rider 2026.2.2 (`RD-26
 - **Diff toolbar:** put actions on each request with `DiffUserDataKeys.CONTEXT_ACTIONS`. They come after the platform's own actions and move into the › overflow when the editor is narrow.
 - **Initial scroll in a diff:** wait for `DiffViewerListener.onAfterRediff`, then `invokeLater`.
 - **collaboration-tools:** `ReviewListComponentFactory` and `ReviewListSearchPanelFactory` are `@ApiStatus.Internal`, and `CommentInputActionsComponentFactory` is scheduled for removal. The plugin builds its own list, chips and comment components.
-- **List context menu:** `PopupHandler.installSelectionListPopup(list, group, place)` (public, no API-status annotation in 262). That it selects the right-clicked row first is **UNVERIFIED** in the UI.
+- **List context menu:** `PopupHandler.installSelectionListPopup(list, group, place)` (public, no API-status annotation in 262). Verified in the sandbox: it opens only when the right-clicked row is already selected, so the list selects the row under a right click first (a mouse listener added before the popup handler).
 - **Modal dialogs from coroutines:** `MessageDialogBuilder.yesNoCancel(…).show(component)` is shown through `invokeLater`, outside the coroutine that made the service call.
 - **Public API used:** `PopupShowOptions.aboveComponent` and `TextFieldWithCompletion` carry no API-status annotation in 262.
 - **Unified diff viewer** (`com.intellij.diff.tools.fragmented.UnifiedDiffViewer`, in `lib/intellij.platform.diff.impl.jar`), checked with `javap` on 262.10315.191:
