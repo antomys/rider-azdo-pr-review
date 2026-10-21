@@ -1,5 +1,7 @@
 # Security findings
 
+Status after the fixes: see `final-report.md` (all medium findings Fixed by independent QA; low findings are backlog).
+
 Reviewed on 2026-10-20 against `origin/master` (`eaf1dce`). Severity: critical, high, medium, low. Everything marked **verified** was read from code or produced by a command in this checkout; **UNVERIFIED** items are reasoning that was not tested.
 
 Summary: 0 critical, 0 high, 2 medium, 6 low, 3 informational.

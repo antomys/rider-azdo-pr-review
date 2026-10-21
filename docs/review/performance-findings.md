@@ -1,5 +1,7 @@
 # Performance findings
 
+Status after the fixes: see `final-report.md` (all medium findings Fixed by independent QA; low findings are backlog).
+
 Reviewed on 2026-10-20 against `origin/master` (`eaf1dce`). Measurements come from the fixture server (`src/test/resources/fixtures/azdo`, recorded from sandbox PR 1) and from temporary JUnit tests run with `./gradlew test -PplatformLocalPath=/Applications/Rider.app`; no network calls.
 
 Summary: 3 medium, 7 low.

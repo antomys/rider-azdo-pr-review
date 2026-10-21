@@ -16,7 +16,8 @@ updated: 2026-10-20
 - **Covers:**
   - settings, the Pull Requests list (search, chips, rows), the details tab (header, files tree, review status, buttons, ⋮ menu) and the timeline tab;
   - the diff (inline threads, gutter, toolbar), the comment box, drafts, threads and mentions;
-  - the Submit Review popup and viewed marks.
+  - the Submit Review popup and viewed marks;
+  - since the 2026-10-20 review: comments and descriptions render Markdown only; raw HTML shows as text and images aren't loaded (see [[src-security-review]]).
 - **Lists what's not built** (unified-diff threads, AI review, F1–F5, …). See [[plan-vs-implementation]].
 
 Pages built on it: [[draft-review]], [[voting]], [[viewed-marks]], [[mentions]], [[ui-structure]].

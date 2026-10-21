@@ -12,3 +12,5 @@ Operations:
 ---
 
 ## [2026-10-20] ingest | docs/ (plan, risks, open decisions, F1–F5, sandbox plan and inventory) plus the new product baseline and engineering notes; 20 pages created
+
+## [2026-10-20] ingest | docs/review/ (inventory, security and performance findings, plan, final report) and the baseline's Markdown-only rendering line; 1 page created, 3 updated
