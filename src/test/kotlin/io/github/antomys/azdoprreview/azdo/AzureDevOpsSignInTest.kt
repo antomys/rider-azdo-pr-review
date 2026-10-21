@@ -46,4 +46,13 @@ class AzureDevOpsSignInTest {
 
         assertEquals(1, server.requests.size)
     }
+
+    @Test
+    fun `lists the enabled repositories of every project, sorted`() = runBlocking {
+        server.on("GET", "/fabrikam/_apis/git/repositories", FixtureServer.fixture("repositories.json"))
+
+        val repos = AzureDevOpsSignIn.repositories(client)
+
+        assertEquals(listOf(RepoRef("Backend", "api"), RepoRef("Fiber Project", "web-app")), repos)
+    }
 }

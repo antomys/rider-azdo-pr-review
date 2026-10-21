@@ -60,6 +60,15 @@ data class AzureDevOpsRemote(val organization: String, val project: String, val 
             return fromGitConfig(config.readText())
         }
 
+        /**
+         * The Azure DevOps remote of the Git repository containing [dir]: the nearest folder up from [dir] that has a
+         * `.git`, since a solution often sits below the repository root. Null without a repository or such a remote.
+         */
+        fun find(dir: File): AzureDevOpsRemote? =
+            generateSequence(dir.absoluteFile) { it.parentFile }
+                .firstOrNull { File(it, ".git").exists() }
+                ?.let(::fromRepository)
+
         private fun decode(segment: String) = URLDecoder.decode(segment.replace("+", "%2B"), Charsets.UTF_8)
     }
 }

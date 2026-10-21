@@ -127,3 +127,10 @@ Only `claude --help`, `claude --version` and `claude auth --help` were run; no p
 - `buildPlugin` writes `build/distributions/rider-azdo-pr-review-<version>.zip`.
 - Distribution is a **private GitHub release** with the zip attached (owner's choice, 2026-10-20): no Marketplace listing, no public plugin repository.
 - `scripts/install-plugin.sh` installs the latest release (or a local or freshly built zip) into Rider's plugins directory.
+
+## Repository from the Git remote (0.2.0)
+
+- `GET {org}/_apis/git/repositories?api-version=7.1` lists the repositories of every project the token can read: `value[].name`, `value[].project.name`, `value[].isDisabled` (verified read-only against the sandbox: 1 repository, `isDisabled` false). The sign-in panel offers the enabled ones when the project has no Azure DevOps remote.
+- Rider's `project.basePath` is the solution folder, which can sit below the Git root, so the remote is read from the nearest folder up that has a `.git` (a linked worktree's `.git` file is followed to the main repository's config). A nested repository without an Azure DevOps remote stops the search: its own remote decides.
+- Tokens are stored per organization (`generateServiceName("Azure DevOps PR Review", org)`), so projects of different organizations each use their own.
+
