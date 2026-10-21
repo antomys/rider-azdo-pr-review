@@ -2,9 +2,9 @@
 type: entity
 title: "Azure DevOps sandbox"
 tags: [testing, process]
-sources: [src-sandbox-plan, src-sandbox-inventory]
+sources: [src-sandbox-plan, src-sandbox-inventory, src-engineering-notes]
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 # Azure DevOps sandbox
 
@@ -12,7 +12,7 @@ Organization `igorvolokhovych`, project and repository `test-pr-reviewer`. The o
 
 - **Credentials:** the token comes from the `AZDO_PAT` environment variable for scripts and live tests. Never print, log or commit it.
 - **Test PRs:**
-  - 1–6: sample and F2–F4 cases;
+  - 1–6: sample and F2–F4 cases (PR 1 has two iterations, used for [[update-view]]; PR 4 is assigned only to a team, used for [[assigned-to-me]]);
   - 7: "Add order pricing with customer discounts", rich threads, the test identity as required reviewer;
   - 8: draft with delete and rename;
   - 9: 14 files, no reviewers.
@@ -22,4 +22,4 @@ Organization `igorvolokhovych`, project and repository `test-pr-reviewer`. The o
   - don't merge or abandon sandbox PRs while testing.
 - The live tests (`AZDO_LIVE_TEST=1`) are read-only.
 
-Sources: [[src-sandbox-plan]], [[src-sandbox-inventory]]
+Sources: [[src-sandbox-plan]], [[src-sandbox-inventory]], [[src-engineering-notes]]

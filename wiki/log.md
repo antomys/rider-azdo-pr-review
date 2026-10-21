@@ -16,3 +16,5 @@ Operations:
 ## [2026-10-20] ingest | docs/review/ (inventory, security and performance findings, plan, final report) and the baseline's Markdown-only rendering line; 1 page created, 3 updated
 
 ## [2026-10-21] update | release 0.1.1: curl install one-liner, script downloads releases with curl; release-and-install and index updated
+
+## [2026-10-21] ingest | 0.2.0 features: unified diff view, F1 sign-in and rejected tokens, F2 Assigned to me, F3–F5 reviewed marks, update detection and update view, opt-in AI review (product baseline, engineering notes, risks, CLAUDE.md AI rule); 6 pages created, 16 updated
