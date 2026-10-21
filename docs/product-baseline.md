@@ -120,6 +120,7 @@ Closing the details tab closes its timeline tab.
 - **@mentions:**
   - typing `@` opens suggestions: thread participants first, then project team members and directory search;
   - Enter or Tab inserts `@Name`, which is posted as Azure DevOps' `@<id>` mention and shown as `@Name` when read back.
+- Comments and descriptions render Markdown only; raw HTML shows as text and images aren't loaded.
 
 ## Submit Review popup
 

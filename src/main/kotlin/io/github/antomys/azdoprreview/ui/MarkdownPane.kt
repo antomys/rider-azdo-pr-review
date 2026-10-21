@@ -25,7 +25,7 @@ class MarkdownPane(markdown: String, color: Color? = null) : JEditorPane() {
         addHyperlinkListener(BrowserHyperlinkListener.INSTANCE)
         // Setting the text moves the caret, which would scroll the enclosing panel to this pane.
         (caret as? DefaultCaret)?.updatePolicy = DefaultCaret.NEVER_UPDATE
-        text = convertMarkdownToHtml(markdown)
+        text = sanitizeHtml(convertMarkdownToHtml(markdown))
     }
 
     /** Height for the current width, so the text wraps instead of widening its container. */
@@ -43,5 +43,34 @@ class MarkdownPane(markdown: String, color: Color? = null) : JEditorPane() {
         val widthChanged = width != this.width
         super.setBounds(x, y, width, height)
         if (widthChanged) SwingUtilities.invokeLater { revalidate() }
+    }
+}
+
+/** What the converter emits for Markdown syntax (`span` carries strikethrough); any other tag is shown as text. */
+private val ALLOWED_TAGS = setOf(
+    "p", "br", "strong", "em", "b", "i", "s", "del", "span", "code", "pre", "ul", "ol", "li", "blockquote",
+    "h1", "h2", "h3", "h4", "h5", "h6", "hr", "a", "table", "thead", "tbody", "tr", "th", "td", "input",
+)
+private val TAG = Regex("""<(/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>""")
+private val HREF = Regex("""\bhref\s*=\s*"([^"]*)"""", RegexOption.IGNORE_CASE)
+private val SAFE_HREF = Regex("""^(https?://|mailto:)""", RegexOption.IGNORE_CASE)
+private val INPUT_ATTR = Regex("""\b(type|checked|disabled)\b(\s*=\s*"[^"]*")?""", RegexOption.IGNORE_CASE)
+
+/**
+ * Keeps only the tags and attributes Markdown needs, so raw HTML in a description or comment can't make the IDE
+ * fetch remote images or open odd links; images are dropped and any other tag shows as the text the author wrote.
+ * The converter passes raw HTML through unchanged, and the editor kit only knows HTML 3.2, so a tag regex is enough.
+ */
+fun sanitizeHtml(html: String): String = TAG.replace(html) { match ->
+    val (slash, name, attrs) = match.destructured
+    val tag = name.lowercase()
+    when {
+        tag == "img" -> ""
+        tag !in ALLOWED_TAGS -> match.value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        slash.isNotEmpty() -> "</$tag>"
+        tag == "a" -> HREF.find(attrs)?.groupValues?.get(1)?.trim()?.takeIf { SAFE_HREF.containsMatchIn(it) }
+            ?.let { "<a href=\"$it\">" } ?: "<a>"
+        tag == "input" -> "<input" + INPUT_ATTR.findAll(attrs).joinToString("") { " ${it.value}" } + ">"
+        else -> "<$tag>"
     }
 }
