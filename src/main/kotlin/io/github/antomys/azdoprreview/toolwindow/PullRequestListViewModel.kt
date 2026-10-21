@@ -40,8 +40,10 @@ class PullRequestListViewModel(
     @Volatile
     var quickFilter = QuickFilter.ALL
 
+    /** The connection the current list was loaded with. */
     @Volatile
-    private var target: ReviewTarget? = null
+    var target: ReviewTarget? = null
+        private set
     private var loading: Job? = null
 
     /** Reloads the list, cancelling a load still in progress. */
@@ -58,8 +60,6 @@ class PullRequestListViewModel(
             }
         }.also { loading = it }
     }
-
-    fun webUrl(review: ReviewSummary): String? = target?.provider?.webUrl(review.ref)
 
     private suspend fun load(): State {
         val target = connect().also { target = it } ?: return State.NotConfigured

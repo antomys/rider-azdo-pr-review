@@ -31,7 +31,7 @@ class PullRequestListViewModelTest {
 
         assertEquals(State.Loaded(listOf(review)), vm.state.value)
         assertEquals(listOf(ReviewFilter(ReviewState.OPEN)), provider.filters)
-        assertEquals("https://example.test/pr/7", vm.webUrl(review))
+        assertEquals(provider, vm.target?.provider)
     }
 
     @Test
@@ -58,7 +58,7 @@ class PullRequestListViewModelTest {
         vm.refresh().join()
 
         assertEquals(State.NotConfigured, vm.state.value)
-        assertNull(vm.webUrl(review))
+        assertNull(vm.target)
     }
 
     @Test
