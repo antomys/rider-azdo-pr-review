@@ -5,6 +5,9 @@ interface ReviewProvider {
     val id: String
     val capabilities: ProviderCapabilities
 
+    /** The account the provider is signed in to (the Azure DevOps organization); keys locally stored review state. */
+    val organization: String get() = id
+
     suspend fun currentUser(): ReviewUser
 
     suspend fun listReviews(repo: RepoRef, filter: ReviewFilter, page: Page = Page()): List<ReviewSummary>
@@ -15,6 +18,15 @@ interface ReviewProvider {
 
     /** Changes in [revision] compared with the merge base. */
     suspend fun listChanges(ref: ReviewRef, revision: Revision): List<FileChange>
+
+    /** Changes in [revision] compared with the earlier revision [compareTo]: only what changed in between. */
+    suspend fun listChanges(ref: ReviewRef, revision: Revision, compareTo: Int): List<FileChange>
+
+    /** Every commit in [revision], newest first; a revision's commits include those of earlier revisions. */
+    suspend fun listCommits(ref: ReviewRef, revision: Int): List<ReviewCommit>
+
+    /** The current user's teams in [repo]'s project; reviews can be assigned to a team instead of a person. */
+    suspend fun myTeams(repo: RepoRef): List<ReviewUser>
 
     /** File bytes at [commit], or null if the file doesn't exist there. */
     suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray?

@@ -1,0 +1,14 @@
+{
+  "value": [
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "name": "test-pr-reviewer Team",
+      "url": "https://dev.azure.com/fabrikam/_apis/projects/55555555-5555-5555-5555-555555555555/teams/44444444-4444-4444-4444-444444444444",
+      "description": "The default project team.",
+      "identityUrl": "https://spsprodcca1.vssps.visualstudio.com/A1fd806b9-e2b0-4816-a02d-bf40509e7e99/_apis/Identities/44444444-4444-4444-4444-444444444444",
+      "projectName": "test-pr-reviewer",
+      "projectId": "55555555-5555-5555-5555-555555555555"
+    }
+  ],
+  "count": 1
+}

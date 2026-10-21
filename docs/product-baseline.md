@@ -1,6 +1,6 @@
-# Product baseline (0.1.0)
+# Product baseline (0.2.0)
 
-What the plugin does today, as approved by the owner on 2026-10-20 after reviewing it in a sandbox Rider (release `v0.1.0`, commit `8fd864e`).
+What the plugin does today. The 0.1.0 behavior was approved by the owner on 2026-10-20 after reviewing it in a sandbox Rider (release `v0.1.0`, commit `8fd864e`). The owner asked for the 0.2.0 features on 2026-10-21: the unified diff view, sign-in, "Assigned to me", reviewed marks with update detection and the update view, and the opt-in AI review.
 
 **Rules for changes**
 - Everything below is the intended behavior. Don't change, remove or restyle any of it unless the owner asks for that specific change.
@@ -37,6 +37,13 @@ Docked on the left, with a merge icon. The first tab, "Pull Requests", is the li
 - Comment counts load after the list, 4 requests at a time.
 - Double-click or Enter opens the pull request.
 - Empty states: "Loading pull requests…"; the error text with "Retry"; "No pull requests" or "No pull requests match the search", with "Reset filters" when filters aren't the default. Missing settings show the sign-in panel instead (see below).
+- **Review state (0.2.0):** reviewed marks are local to the IDE and never sent to Azure DevOps (see "Reviewed marks").
+  - The funnel's popup also offers the preset **Assigned to me** (after Waiting for my review) and, below a separator, the checkable toggles **Show reviewed** and, while Assigned to me is on, **Show declined**. A toggle that is on also lights the green dot. Choosing a preset keeps Show reviewed.
+  - **Assigned to me** lists the pull requests in the configured repository where the user is a reviewer directly or through one of their project teams (state chip as usual, Open by default). While it's on, the Reviewer chip reads "Me and my teams ×"; clearing it, or choosing a reviewer, returns to the normal Reviewer filter. If a team's pull requests can't be loaded, the list still shows the rest with a grey warning line "Some team assignments couldn't be loaded" under the filters.
+  - In Assigned to me, line 2 also shows the user's role (Required, Optional, or "via team <name>"), their vote name (the team's vote for a team-only assignment), "Declined" when they declined, and "Needs review" for pull requests not marked reviewed. Rows are sorted: needs review, then updated since review, then reviewed; newest first within each. Pull requests the user declined are hidden unless Show declined is on.
+  - Pull requests marked reviewed are hidden from every list view unless Show reviewed is on; then they show a grey **Reviewed** badge after the DRAFT badge. A pull request whose reviewed mark was cleared by a new iteration shows a grey **Updated: iteration N → M** badge instead, with the reasons in brackets when known (push, force-push, rebase, retarget), and is listed again.
+  - When every loaded pull request that matches is hidden because it's marked reviewed, the empty state reads "Pull requests marked reviewed are hidden" with a "Show reviewed" link.
+  - Right-clicking a row selects it and opens a context menu with **Mark as Reviewed**, or **Mark as Not Reviewed** for a reviewed pull request.
 
 ### Sign-in panel
 
@@ -87,6 +94,13 @@ Closing the details tab closes its timeline tab.
 - **Buttons** (open pull requests):
   - Primary: **Set Myself as Reviewer** when the user isn't a reviewer and has no drafts; otherwise **Submit Review…**, or **Submit Review (N)…** with N pending drafts.
   - **⋮** menu, opening upward: Request Review… (pick a person), Merge… (confirmation, then complete; disabled for drafts and conflicts), Rebase (always disabled), Close Pull Request (confirmation, then abandon).
+  - Then, after a separator (0.2.0): **Mark as Reviewed**, or **Mark as Not Reviewed** when it's marked reviewed (see "Reviewed marks").
+- **Update banner (0.2.0)** at the top of the tab, above the title, when the pull request has iterations newer than the one the user saw when they last opened it:
+  - bold "Updated: iteration N → M" and a × that dismisses it for this tab;
+  - one grey line per newer iteration: "Iteration M · <date> · <reasons>";
+  - "K new commit(s)" with up to 10 commits (short id and first line), and "K file(s) changed" with up to 10 paths, then "and N more"; "Loading changes…" until they load;
+  - links **Show changes since last view** (disabled when no files changed) and **Show all changes** (the normal diff, at the first file).
+  - It stays while the tab is refreshed, until dismissed. Opening the tab records the latest iteration as viewed, so the next opening shows no banner unless another iteration arrives.
   - Popups anchored at the bottom open above their button.
 
 ### Timeline editor tab
@@ -117,6 +131,8 @@ Closing the details tab closes its timeline tab.
   - the **+** on a deleted line comments on the base side, on an inserted or unchanged line on the iteration side, as in Azure DevOps. With a selection, the comment takes the clicked line's side and covers the selected lines that side has;
   - **↑ / ↓** order the shown file's threads by where they appear in the unified editor, then move across files as in side-by-side;
   - switching between side-by-side and unified while the diff is open shows the review UI in the new view.
+
+- **Changes since last view (0.2.0):** a separate editor tab, `PR #<id>: changes since iteration N`, opened from the update banner. It lists only the files changed between iteration N and the latest one (the platform's own file navigation moves between them); left is the file at iteration N's source commit, right at the latest iteration's. It has no inline threads, comment gutter or review toolbar, and showing a file there doesn't mark it viewed, because threads are positioned against the merge-base diff. Opening it again replaces the previous one.
 
 ## Comments
 
@@ -192,11 +208,16 @@ Off by default. Nothing is sent anywhere until the user enables it and confirms 
 - AI text is shown only as sanitised Markdown or plain text, like comments.
 - Errors (CLI not found, not signed in, timeout, non-zero exit, unreadable output) show in a "Review with AI" error dialog with the end of the CLI's error output; values of Claude sign-in variables are masked.
 
-## Not in 0.1.0
+## Reviewed marks (0.2.0)
+
+- Stored locally per organization, repository, pull request and user, in an IDE-level file (not in the project, not synced). Nothing is written to Azure DevOps and votes don't change.
+- **Mark as Reviewed** reads the pull request's iterations and records the latest one and its source commit. If that iteration is newer than the one the user saw when they last opened the pull request, a dialog says "This PR was updated since you opened it (iteration N → M)." with **Mark Anyway**, **Review Update** (opens the pull request from the list, or reloads the tab so the update banner shows) and Cancel.
+- A reviewed mark is cleared when the pull request has a newer iteration or a different source commit (a retarget counts). The list compares each reviewed pull request's last merge source commit with the reviewed one and reads the iterations only when they differ; opening the pull request always checks.
+- Records of completed or abandoned pull requests untouched for 90 days are removed when the list loads.
+
+## Not built yet
 
 These are planned or specified in `docs/`, but not built. Building them is a new feature, not a change to the baseline.
-- threads in the unified diff view;
-- the AI review;
-- the F1–F5 features (sign-in prompt, team-aware "Assigned to me", reviewed marking, update detection, update view);
+- a second AI adapter (Copilot CLI);
 - create pull request, checkout, likes, suggestion apply;
 - Azure DevOps Server (on-premises) and OAuth sign-in.

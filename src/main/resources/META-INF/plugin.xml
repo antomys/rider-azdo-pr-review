@@ -11,11 +11,17 @@
             <li>Comments saved as drafts and sent together with Submit Review: approve, approve with suggestions,
                 request changes, reject, or comment only</li>
             <li>Viewed-file marks, comment navigation, and request review, merge and close actions</li>
+            <li>"Assigned to me" including your teams, reviewed marks, and what changed since you last looked</li>
+            <li>Optional review with Claude Code: you approve what is sent and pick the findings to keep</li>
         </ul>
-        Sign in with an Azure DevOps personal access token in Settings | Tools | Azure DevOps PR Review;
-        the token is kept in the IDE password storage.
+        Sign in with an Azure DevOps personal access token in the tool window or in
+        Settings | Tools | Azure DevOps PR Review; the token is kept in the IDE password storage.
     ]]></description>
     <change-notes><![CDATA[
+        <b>0.2.0</b>: sign-in panel and token renewal; "Assigned to me" including your teams; mark pull requests
+        reviewed, with update detection and a "changes since last view" banner and diff; threads, drafts and new
+        comments in the unified diff view; an opt-in review with Claude Code that previews its findings before they
+        become drafts or threads.<br>
         <b>0.1.1</b>: comments and descriptions render Markdown only (raw HTML shows as text, images aren't
         loaded); titles and names from the service are shown as plain text; comment and list updates no longer
         block the UI; fewer requests while typing an @mention.<br>

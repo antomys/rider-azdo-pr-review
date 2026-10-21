@@ -1,0 +1,14 @@
+{
+  "changeEntries": [
+    {
+      "changeTrackingId": 2,
+      "changeId": 2,
+      "item": {
+        "objectId": "927A82A1BD0C66CF73D9A2D22AB2EDEB3B586D76",
+        "originalObjectId": "3734AFD0B019E8D2520CF87D6C0F1550F7667EA2",
+        "path": "/src/Calculator.cs"
+      },
+      "changeType": "edit"
+    }
+  ]
+}

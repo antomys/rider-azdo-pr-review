@@ -1,13 +1,21 @@
 package io.github.antomys.azdoprreview.toolwindow
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.project.DumbAware
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.CollectionListModel
 import com.intellij.ui.DoubleClickListener
 import com.intellij.ui.JBColor
+import com.intellij.ui.PopupHandler
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.SearchTextField
 import com.intellij.ui.SimpleTextAttributes
@@ -17,7 +25,9 @@ import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.util.text.DateFormatUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import io.github.antomys.azdoprreview.review.ReviewMark
 import io.github.antomys.azdoprreview.review.ReviewState
+import io.github.antomys.azdoprreview.review.ReviewStatus
 import io.github.antomys.azdoprreview.review.ReviewSummary
 import io.github.antomys.azdoprreview.review.ReviewUser
 import io.github.antomys.azdoprreview.toolwindow.PullRequestListViewModel.State
@@ -43,6 +53,7 @@ import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListCellRenderer
 import javax.swing.ListSelectionModel
+import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 
@@ -62,6 +73,10 @@ class PullRequestListPanel(
         textEditor.emptyText.text = "Search by title, number, author or branch"
     }
     private val filterBar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(10), 0)).apply { isOpaque = false }
+    private val notice = JBLabel(AllIcons.General.Warning).apply {
+        foreground = UIUtil.getContextHelpForeground()
+        isVisible = false
+    }
 
     init {
         search.addDocumentListener(object : DocumentListener {
@@ -78,6 +93,7 @@ class PullRequestListPanel(
             border = JBUI.Borders.empty(6, 8, 4, 8)
             add(search)
             add(filterBar)
+            add(notice)
         }
         setContent(ScrollPaneFactory.createScrollPane(list, true))
 
@@ -93,6 +109,46 @@ class PullRequestListPanel(
         scope.launch(Dispatchers.EDT) { vm.state.collect(::render) }
         scope.launch(Dispatchers.EDT) { vm.filters.collect { renderFilters(it) } }
         scope.launch(Dispatchers.EDT) { vm.commentCounts.collect { list.repaint() } }
+        scope.launch(Dispatchers.EDT) {
+            vm.markChanges.collect {
+                vm.marksChanged()
+                list.repaint()
+            }
+        }
+        scope.launch(Dispatchers.EDT) {
+            vm.notice.collect {
+                notice.text = it.orEmpty()
+                notice.isVisible = it != null
+            }
+        }
+        // The selection popup only opens on a selected row, so a right click selects its row first (added before it).
+        list.addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                if (!SwingUtilities.isRightMouseButton(e) && !e.isPopupTrigger) return
+                val index = list.locationToIndex(e.point)
+                if (index >= 0 && list.getCellBounds(index, index)?.contains(e.point) == true) list.selectedIndex = index
+            }
+        })
+        PopupHandler.installSelectionListPopup(list, DefaultActionGroup(markAction(reviewed = true), markAction(reviewed = false)), "AzureDevOpsPrList")
+    }
+
+    /** "Mark as Reviewed" or "Mark as Not Reviewed" for the selected pull request; only the one that applies is shown. */
+    private fun markAction(reviewed: Boolean) = object : DumbAwareAction(if (reviewed) "Mark as Reviewed" else "Mark as Not Reviewed") {
+        override fun update(e: AnActionEvent) {
+            val review = list.selectedValue
+            e.presentation.isEnabledAndVisible = review != null && (vm.status(review) == ReviewStatus.REVIEWED) != reviewed
+        }
+
+        override fun actionPerformed(e: AnActionEvent) {
+            val review = list.selectedValue ?: return
+            if (reviewed) {
+                MarkReviewed.run(scope, list, { force -> vm.markReviewed(review, force) }) { openReview(review) }
+            } else {
+                vm.markNotReviewed(review)
+            }
+        }
+
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
     }
 
     private fun searchChanged() {
@@ -124,8 +180,17 @@ class PullRequestListPanel(
             }
             is State.Loaded -> {
                 model.replaceAll(state.visible)
-                empty.appendText(if (state.reviews.isEmpty()) "No pull requests" else "No pull requests match the search")
-                if (!vm.filters.value.isDefault) {
+                val hidden = vm.hiddenReviewed()
+                when {
+                    state.reviews.isEmpty() -> empty.appendText("No pull requests")
+                    // Everything that matches is marked reviewed: offer to show those rather than to reset filters.
+                    hidden > 0 && state.visible.isEmpty() -> empty.appendText("Pull requests marked reviewed are hidden")
+                        .appendSecondaryText("Show reviewed", SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) {
+                            setFilters(vm.filters.value.copy(showReviewed = true))
+                        }
+                    else -> empty.appendText("No pull requests match the search")
+                }
+                if (!vm.filters.value.isDefault && !(hidden > 0 && state.visible.isEmpty())) {
                     empty.appendSecondaryText("Reset filters", SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { setFilters(ListFilters()) }
                 }
             }
@@ -152,8 +217,9 @@ class PullRequestListPanel(
         filterBar.add(chip("Author", filters.author?.let(::personLabel), clear = { setFilters(filters.copy(author = null)) }) { chip ->
             choosePerson(chip) { setFilters(vm.filters.value.copy(author = it)) }
         })
-        filterBar.add(chip("Reviewer", filters.reviewer?.let(::personLabel), clear = { setFilters(filters.copy(reviewer = null)) }) { chip ->
-            choosePerson(chip) { setFilters(vm.filters.value.copy(reviewer = it)) }
+        val reviewer = if (filters.assignedToMe) "Me and my teams" else filters.reviewer?.let(::personLabel)
+        filterBar.add(chip("Reviewer", reviewer, clear = { setFilters(filters.copy(reviewer = null).notAssigned()) }) { chip ->
+            choosePerson(chip) { setFilters(vm.filters.value.copy(reviewer = it).notAssigned()) }
         })
         val labels = ((vm.state.value as? State.Loaded)?.reviews.orEmpty().flatMap { it.labels } + listOfNotNull(filters.label)).distinct().sorted()
         filterBar.add(chip("Label", filters.label, clear = { setFilters(filters.copy(label = null)) }) { chip ->
@@ -167,15 +233,45 @@ class PullRequestListPanel(
         filterBar.repaint()
     }
 
+    private fun ListFilters.notAssigned() = copy(assignedToMe = false, showDeclined = false)
+
+    /** Presets, then the toggles for reviewed and (in "Assigned to me") declined pull requests. */
     private fun showQuickFilters(anchor: JComponent) {
         val me = vm.me
+        val current = vm.filters.value
         val presets = listOfNotNull(
             "Open" to ListFilters(),
             me?.let { "Created by me" to ListFilters(author = it) },
             me?.let { "Waiting for my review" to ListFilters(reviewer = it) },
+            me?.let { "Assigned to me" to ListFilters(assignedToMe = true) },
             "All states" to ListFilters(state = null),
         )
-        choose(anchor, presets, { it.first }) { setFilters(it.second.copy(search = vm.filters.value.search)) }
+        val group = DefaultActionGroup()
+        presets.forEach { (name, preset) ->
+            group.add(object : DumbAwareAction(name) {
+                override fun actionPerformed(e: AnActionEvent) = setFilters(
+                    preset.copy(
+                        search = vm.filters.value.search,
+                        showReviewed = current.showReviewed,
+                        showDeclined = current.showDeclined && preset.assignedToMe,
+                    ),
+                )
+
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
+            })
+        }
+        group.addSeparator()
+        group.add(toggle("Show reviewed", current.showReviewed) { setFilters(vm.filters.value.copy(showReviewed = it)) })
+        if (current.assignedToMe) group.add(toggle("Show declined", current.showDeclined) { setFilters(vm.filters.value.copy(showDeclined = it)) })
+        JBPopupFactory.getInstance()
+            .createActionGroupPopup(null, group, DataContext.EMPTY_CONTEXT, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, true)
+            .showUnderneathOf(anchor)
+    }
+
+    private fun toggle(name: String, selected: Boolean, set: (Boolean) -> Unit) = object : ToggleAction(name), DumbAware {
+        override fun isSelected(e: AnActionEvent) = selected
+        override fun setSelected(e: AnActionEvent, state: Boolean) = set(state)
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
     }
 
     private fun choosePerson(anchor: JComponent, chosen: (ReviewUser) -> Unit) {
@@ -240,7 +336,10 @@ class PullRequestListPanel(
         private val right = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply { isOpaque = false }
         private val panel = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
             border = JBUI.Borders.empty(5, 8)
-            add(JPanel(VerticalLayout(JBUI.scale(2))).apply {
+            // No preferred width of its own: long text is cut with "…" instead of widening the row past the list.
+            add(object : JPanel(VerticalLayout(JBUI.scale(2))) {
+                override fun getPreferredSize() = super.getPreferredSize().apply { width = 0 }
+            }.apply {
                 isOpaque = false
                 add(title)
                 add(details)
@@ -256,12 +355,23 @@ class PullRequestListPanel(
             title.text = value.title
             title.foreground = if (value.isDraft) UIUtil.getContextHelpForeground() else foreground
             val created = DateFormatUtil.formatPrettyDate(value.created.toEpochMilli())
+            val status = vm.status(value)
             details.text = "#${value.ref.id} · created $created, by ${value.author.displayName}" +
-                if (value.state != ReviewState.OPEN) " · ${stateLabel(value.state)}" else ""
+                (if (value.state != ReviewState.OPEN) " · ${stateLabel(value.state)}" else "") +
+                // "Assigned to me" adds the user's role, vote and review status.
+                vm.assignments.value[value.ref.id]?.let { a ->
+                    listOfNotNull(a.label, VoteIcons.NAMES[a.vote], "Declined".takeIf { a.declined }, "Needs review".takeIf { status == ReviewStatus.NEEDS_REVIEW })
+                        .joinToString(" · ", prefix = " · ")
+                }.orEmpty()
             details.foreground = UIUtil.getContextHelpForeground()
 
             right.removeAll()
             if (value.isDraft) right.add(Badge("DRAFT"))
+            when (status) {
+                ReviewStatus.REVIEWED -> right.add(Badge("Reviewed"))
+                ReviewStatus.UPDATED -> vm.mark(value)?.let { right.add(Badge(updatedText(it))) }
+                ReviewStatus.NEEDS_REVIEW -> {}
+            }
             if (value.labels.isNotEmpty()) right.add(JBLabel(AllIcons.Nodes.Tag).apply { toolTipText = "<html>" + StringUtil.escapeXmlEntities(value.labels.joinToString()) })
             val avatars = Avatars.of(vm.target?.provider ?: return panel)
             value.reviewers.take(MAX_AVATARS).forEach { reviewer ->
@@ -277,6 +387,12 @@ class PullRequestListPanel(
     private companion object {
         const val MAX_AVATARS = 3
         const val AVATAR_SIZE = 22
+
+        /** "Updated: iteration 1 → 2 (force-push)": the reviewed iteration, the latest one, and why when known. */
+        fun updatedText(mark: ReviewMark): String {
+            val reasons = mark.updateReasons.sortedBy { it.ordinal }.joinToString { it.label }
+            return "Updated: iteration ${mark.updatedFrom} → ${mark.updatedTo}" + if (reasons.isEmpty()) "" else " ($reasons)"
+        }
 
         fun stateLabel(state: ReviewState?) = when (state) {
             ReviewState.OPEN -> "Open"

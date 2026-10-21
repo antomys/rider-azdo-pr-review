@@ -4,7 +4,7 @@ title: "Build, test and verify"
 tags: [testing, release, platform]
 sources: [src-engineering-notes, src-plan]
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 # Build, test and verify
 
@@ -17,5 +17,6 @@ updated: 2026-10-20
 - **Stale test classes** (`NoSuchMethodError`): delete `build/classes/kotlin/test` and `build/kotlin/compileTestKotlin`.
 - **Sandbox IDE:** `./gradlew runIde -PplatformLocalPath=/Applications/Rider.app`. Restart it after changes (no hot reload). Don't switch branches while it runs; use `git worktree`.
 - **UI changes:** check them in the sandbox IDE against the [[sandbox]], and compare with the product baseline.
+- **AI review:** never run the Claude Code CLI with a prompt in tests or while developing; tests use `FakeAiReviewer` and hand-written outputs ([[ai-review]]).
 
 Sources: [[src-engineering-notes]], [[src-plan]]

@@ -38,6 +38,8 @@ Facts verified while building 0.1.0 (2026-10-20), against Rider 2026.2.2 (`RD-26
 - **Diff toolbar:** put actions on each request with `DiffUserDataKeys.CONTEXT_ACTIONS`. They come after the platform's own actions and move into the › overflow when the editor is narrow.
 - **Initial scroll in a diff:** wait for `DiffViewerListener.onAfterRediff`, then `invokeLater`.
 - **collaboration-tools:** `ReviewListComponentFactory` and `ReviewListSearchPanelFactory` are `@ApiStatus.Internal`, and `CommentInputActionsComponentFactory` is scheduled for removal. The plugin builds its own list, chips and comment components.
+- **List context menu:** `PopupHandler.installSelectionListPopup(list, group, place)` (public, no API-status annotation in 262). Verified in the sandbox: it opens only when the right-clicked row is already selected, so the list selects the row under a right click first (a mouse listener added before the popup handler).
+- **Modal dialogs from coroutines:** `MessageDialogBuilder.yesNoCancel(…).show(component)` is shown through `invokeLater`, outside the coroutine that made the service call.
 - **Public API used:** `PopupShowOptions.aboveComponent` and `TextFieldWithCompletion` carry no API-status annotation in 262.
 - **Unified diff viewer** (`com.intellij.diff.tools.fragmented.UnifiedDiffViewer`, in `lib/intellij.platform.diff.impl.jar`), checked with `javap` on 262.10315.191:
   - the class, its package and the methods used carry no `ApiStatus` annotation (only `myModel`, `createUi` and `getDifferenceIterable` are `@Internal`);
@@ -72,6 +74,15 @@ Facts verified while building 0.1.0 (2026-10-20), against Rider 2026.2.2 (`RD-26
   - Graph `subjectquery` matches only display-name prefixes ("Volo" matches "Volokhovych Ihor"; "Ihor" doesn't), and returns `{"count":0,"value":null}` when nothing matches;
   - project team members come from `GET {org}/_apis/projects/{project}/teams` then `…/teams/{id}/members` (`identity.{id,displayName,uniqueName}`).
 - **Avatars:** `GET {org}/_api/_common/identityImage?id=<id>` returns `image/png` with PAT basic auth. Sandbox users without a photo get a generated initials image.
+- **Teams and reviewer filters (F2, verified 2026-10-21):**
+  - `GET {org}/_apis/projects/{project}/teams?$mine=true` lists the user's direct teams in the project (`id`, `name`).
+  - `searchCriteria.reviewerId` doesn't expand teams: the team-only PR 4 comes back only for the team's id, so "Assigned to me" queries the user's id and each team id and merges by `pullRequestId`.
+  - In `reviewers[]`, `isRequired` is left out when false; a team reviewer has `isContainer: true` and `displayName` `[<project>]\<team name>`. `hasDeclined` and `isFlagged` are always present. `votedFor` wasn't seen in the sandbox (**UNVERIFIED** shape: identity refs of the teams a member's vote counts for).
+- **Iterations (F4/F5, verified):**
+  - `reason` is text, e.g. `"push"`. How several flags are written (assumed comma-separated, like `changeType`) is **UNVERIFIED**.
+  - `…/iterations/{id}/commits` lists that iteration's commits newest first and is cumulative (iteration 2 of PR 1 returns both commits). It pages with `top` and `skip` without `$`; `$top` is ignored (verified: `top=1` returns 1 commit, `$top=1` returns both).
+  - `…/iterations/{latest}/changes?$compareTo={earlier}` returns only the delta (PR 1, 2 vs 1: one entry, `/src/Calculator.cs`, with the same `changeTrackingId` as the full list). The plugin doesn't cache those ids from a comparison, since the list is partial.
+- **Reviewed marks (F3):** stored locally in `azure-devops-pr-review-reviews.xml` (`ReviewMarksStore`, app level, roaming disabled), keyed `{organization}/{repositoryId}/{pullRequestId}/{userId}`; the repository id comes from the list response's `repository.id`.
 - **Viewed marks:** no public API for Azure DevOps' own reviewed marks was found (**UNVERIFIED** that none exists), so they are stored locally (`ViewedFilesStore`, key `<pr web url>|<path>`, value = file version).
 - **Token failures (checked 2026-10-21 with curl and `LiveSandboxTest`, read-only):**
   - a wrong PAT, and no `Authorization` header at all, on `GET {org}/_apis/connectionData` get **302** (`text/html`) with `Location: https://…vssps.visualstudio.com/_signin?realm=dev.azure.com&reply_to=…`, not 401. The JDK `HttpClient` doesn't follow redirects by default, so the client maps a 3xx whose `Location` contains `_signin` to "rejected";

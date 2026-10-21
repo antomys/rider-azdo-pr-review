@@ -8,15 +8,24 @@ class FakeReviewProvider(
     private val reviews: List<ReviewSummary> = emptyList(),
     private val failure: Exception? = null,
     private val details: ReviewDetails? = null,
-    private val revisions: List<Revision> = emptyList(),
+    var revisions: List<Revision> = emptyList(),
     private val changes: Map<Int, List<FileChange>> = emptyMap(),
     var threads: List<ReviewThread> = emptyList(),
     private val users: List<ReviewUser> = emptyList(),
     private val searchFailure: Exception? = null,
     /** File bytes by "<commit>:<path>"; a missing key means the file doesn't exist at that commit. */
     private val files: Map<String, ByteArray> = emptyMap(),
+    /** Reviews by reviewer id, for reviewer-filtered listings; [reviews] is used for the rest. */
+    private val byReviewer: Map<String, List<ReviewSummary>>? = null,
+    private val teams: List<ReviewUser> = emptyList(),
+    /** Reviewer ids whose listing fails. */
+    private val failingReviewers: Set<String> = emptySet(),
+    private val commits: Map<Int, List<ReviewCommit>> = emptyMap(),
+    /** Changes by (revision, compareTo). */
+    private val changesSince: Map<Pair<Int, Int>, List<FileChange>> = emptyMap(),
 ) : ReviewProvider {
     val filters = mutableListOf<ReviewFilter>()
+    var revisionCalls = 0
     val votes = mutableListOf<Vote>()
     val createdThreads = mutableListOf<Pair<ThreadAnchor?, String>>()
 
@@ -28,7 +37,8 @@ class FakeReviewProvider(
     override suspend fun listReviews(repo: RepoRef, filter: ReviewFilter, page: Page): List<ReviewSummary> {
         filters += filter
         failure?.let { throw it }
-        return reviews
+        if (filter.reviewerId in failingReviewers) throw IllegalStateException("HTTP 403")
+        return byReviewer?.let { it[filter.reviewerId].orEmpty() } ?: reviews
     }
 
     override fun webUrl(ref: ReviewRef) = "https://example.test/pr/${ref.id}"
@@ -40,9 +50,15 @@ class FakeReviewProvider(
         return details ?: unused()
     }
 
-    override suspend fun listRevisions(ref: ReviewRef) = revisions
+    override suspend fun listRevisions(ref: ReviewRef): List<Revision> {
+        revisionCalls++
+        return revisions
+    }
     override suspend fun listChanges(ref: ReviewRef, revision: Revision) = changes[revision.id].orEmpty()
     override suspend fun fileContent(repo: RepoRef, path: String, commit: String): ByteArray? = files["$commit:$path"]
+    override suspend fun listChanges(ref: ReviewRef, revision: Revision, compareTo: Int) = changesSince[revision.id to compareTo].orEmpty()
+    override suspend fun listCommits(ref: ReviewRef, revision: Int) = commits[revision].orEmpty()
+    override suspend fun myTeams(repo: RepoRef) = teams
     override suspend fun listThreads(ref: ReviewRef, revision: Revision?): List<ReviewThread> = threads
     override suspend fun createThread(ref: ReviewRef, revision: Revision, anchor: ThreadAnchor?, body: String): ReviewThread {
         createdThreads += anchor to body

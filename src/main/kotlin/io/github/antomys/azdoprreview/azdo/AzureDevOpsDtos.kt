@@ -20,6 +20,9 @@ data class ReviewerDto(
     val uniqueName: String? = null,
     val vote: Int = 0,
     val isRequired: Boolean = false,
+    val hasDeclined: Boolean = false,
+    /** Group reviewers (teams) this reviewer's vote counts for. */
+    val votedFor: List<IdentityRefDto>? = null,
 )
 
 @Serializable
@@ -38,7 +41,11 @@ data class GitPullRequestDto(
     /** "succeeded", "conflicts", "queued", ... */
     val mergeStatus: String? = null,
     val lastMergeSourceCommit: CommitRefDto? = null,
+    val repository: RepositoryRefDto? = null,
 )
+
+@Serializable
+data class RepositoryRefDto(val id: String)
 
 @Serializable
 data class LabelDto(val name: String, val active: Boolean = true)
@@ -55,7 +62,17 @@ data class IterationDto(
     val sourceRefCommit: CommitRefDto,
     val targetRefCommit: CommitRefDto,
     val commonRefCommit: CommitRefDto,
+    val createdDate: String? = null,
+    /** Flags enum rendered as text, e.g. "push" or "forcePush". */
+    val reason: String? = null,
 )
+
+/** A commit as listed for an iteration. */
+@Serializable
+data class GitCommitRefDto(val commitId: String, val comment: String? = null, val author: GitUserDateDto? = null)
+
+@Serializable
+data class GitUserDateDto(val name: String? = null, val date: String? = null)
 
 /**
  * `path` is null for deleted files; their path is in [ChangeEntryDto.originalPath].
@@ -157,7 +174,7 @@ data class GraphSubjectDto(
 )
 
 @Serializable
-data class TeamDto(val id: String)
+data class TeamDto(val id: String, val name: String? = null)
 
 @Serializable
 data class TeamMemberDto(val identity: IdentityRefDto)

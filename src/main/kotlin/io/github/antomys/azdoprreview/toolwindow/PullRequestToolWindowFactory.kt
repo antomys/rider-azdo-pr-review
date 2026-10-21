@@ -25,6 +25,7 @@ import io.github.antomys.azdoprreview.settings.AzureDevOpsAccount
 import io.github.antomys.azdoprreview.settings.AzureDevOpsConfigurable
 import io.github.antomys.azdoprreview.settings.AzureDevOpsConnection
 import io.github.antomys.azdoprreview.settings.AzureDevOpsProjectSettings
+import io.github.antomys.azdoprreview.settings.ReviewMarksStore
 import io.github.antomys.azdoprreview.settings.ViewedFilesStore
 import io.github.antomys.azdoprreview.timeline.TimelineFile
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +44,7 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val connection = project.service<AzureDevOpsConnection>()
         val scope = connection.scope.childScope()
-        val vm = PullRequestListViewModel(scope, connection::target)
+        val vm = PullRequestListViewModel(scope, ReviewMarksStore.getInstance(), connection::target)
         val panel = PullRequestListPanel(
             vm, scope,
             openSettings = {
@@ -151,7 +152,7 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
             return
         }
         val scope = parent.childScope()
-        val vm = PullRequestDetailsViewModel(scope, target, review, ViewedFilesStore.getInstance())
+        val vm = PullRequestDetailsViewModel(scope, target, review, ViewedFilesStore.getInstance(), ReviewMarksStore.getInstance())
         val diff = ReviewDiff(project, vm, scope)
         val timeline = TimelineFile(project, vm, scope, diff)
         val openTimeline = { FileEditorManager.getInstance(project).openFile(timeline, true); Unit }

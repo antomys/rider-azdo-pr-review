@@ -22,7 +22,17 @@ enum class ReviewState { OPEN, MERGED, CLOSED }
 
 enum class Vote { APPROVED, APPROVED_WITH_SUGGESTIONS, NONE, WAITING_FOR_AUTHOR, REJECTED }
 
-data class Reviewer(val user: ReviewUser, val vote: Vote, val isRequired: Boolean)
+/**
+ * [hasDeclined]: the reviewer declined to review. [votedFor]: ids of the group reviewers (teams) this reviewer's vote
+ * counts for.
+ */
+data class Reviewer(
+    val user: ReviewUser,
+    val vote: Vote,
+    val isRequired: Boolean,
+    val hasDeclined: Boolean = false,
+    val votedFor: List<String> = emptyList(),
+)
 
 data class ReviewSummary(
     val ref: ReviewRef,
@@ -37,6 +47,10 @@ data class ReviewSummary(
     val reviewers: List<Reviewer> = emptyList(),
     /** The source branch can't be merged into the target without resolving conflicts. */
     val hasConflicts: Boolean = false,
+    /** The repository's stable id (it survives renames), when the host reports one. */
+    val repositoryId: String? = null,
+    /** The source commit the host last tried to merge; a cheap hint that the review changed. May lag behind pushes. */
+    val sourceCommit: String? = null,
 )
 
 
@@ -48,7 +62,29 @@ data class ReviewFilter(val state: ReviewState? = ReviewState.OPEN, val authorId
 data class Page(val skip: Int = 0, val top: Int = 50)
 
 /** One pushed version of a review (Azure DevOps iteration, GitLab diff version). */
-data class Revision(val id: Int, val sourceCommit: String, val targetCommit: String, val baseCommit: String)
+data class Revision(
+    val id: Int,
+    val sourceCommit: String,
+    val targetCommit: String,
+    val baseCommit: String,
+    val created: Instant? = null,
+    /** Why the revision was created; empty when the host doesn't say. */
+    val reasons: Set<RevisionReason> = emptySet(),
+)
+
+/** Why a revision was created; [label] is how it is shown. */
+enum class RevisionReason(val label: String) {
+    CREATE("created"),
+    PUSH("push"),
+    FORCE_PUSH("force-push"),
+    REBASE("rebase"),
+    RETARGET("retarget"),
+    RESOLVE_CONFLICTS("conflicts resolved"),
+    UNKNOWN("unknown"),
+}
+
+/** A commit of a review; [message] is its first line. */
+data class ReviewCommit(val id: String, val message: String, val author: String?, val date: Instant?)
 
 enum class ChangeKind { ADDED, MODIFIED, DELETED, RENAMED }
 

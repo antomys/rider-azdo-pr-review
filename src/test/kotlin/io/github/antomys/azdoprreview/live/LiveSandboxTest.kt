@@ -131,4 +131,30 @@ class LiveSandboxTest {
         }
         assertEquals(AzureDevOpsException.Kind.NOT_FOUND, e.kind)
     }
+
+    @Test
+    fun `assigned to me includes the team-only PR once, with roles and votes`() = runBlocking {
+        val vm = PullRequestListViewModel(this) { target }
+        vm.setFilters(ListFilters(assignedToMe = true))
+        vm.refresh().join()
+        val state = vm.state.value
+        check(state is PullRequestListViewModel.State.Loaded) { "list failed: $state" }
+
+        assertEquals(listOf(2, 3, 4, 5, 7, 8), state.reviews.map { it.ref.id }.sorted())
+        val assignments = vm.assignments.value
+        assertEquals("Required", assignments.getValue(2).label)
+        assertEquals("Optional", assignments.getValue(3).label)
+        assertEquals(Vote.APPROVED_WITH_SUGGESTIONS, assignments.getValue(3).vote)
+        assertTrue(assignments.getValue(4).label.startsWith("via team "), assignments.getValue(4).label)
+        assertNull(vm.notice.value)
+    }
+
+    @Test
+    fun `iteration commits and the changes since iteration 1 of the sample PR`() = runBlocking {
+        val ref = ReviewRef(repo, 1)
+        val revisions = provider.listRevisions(ref)
+        val seen = provider.listCommits(ref, 1).map { it.id }.toSet()
+        assertEquals(1, provider.listCommits(ref, 2).count { it.id !in seen })
+        assertEquals(listOf("/src/Calculator.cs"), provider.listChanges(ref, revisions.maxBy { it.id }, compareTo = 1).map { it.newPath })
+    }
 }

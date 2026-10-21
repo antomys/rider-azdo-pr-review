@@ -1,6 +1,6 @@
 # Azure DevOps PR Review: Rider plugin
 
-A standalone JetBrains Rider plugin (`io.github.antomys.azdoprreview`) for reviewing Azure DevOps pull requests in the IDE. Its UX follows JetBrains' bundled GitLab merge-request plugin. Kotlin, IntelliJ Platform, targets Rider 2026.2 (build 262) only. Current release: 0.1.1.
+A standalone JetBrains Rider plugin (`io.github.antomys.azdoprreview`) for reviewing Azure DevOps pull requests in the IDE. Its UX follows JetBrains' bundled GitLab merge-request plugin. Kotlin, IntelliJ Platform, targets Rider 2026.2 (build 262) only. Current release: 0.1.1; 0.2.0 is in review.
 
 ## The product baseline is fixed
 
@@ -20,7 +20,7 @@ A standalone JetBrains Rider plugin (`io.github.antomys.azdoprreview`) for revie
   - record every write in `docs/sandbox-inventory.md`;
   - restore votes afterwards, keeping `isRequired`;
   - don't merge or abandon sandbox PRs.
-- **No AI service calls** from the plugin; don't send code to external services.
+- **AI calls:** the only path is the opt-in AI review (`ai/`): off by default, a consent dialog on every run listing exactly what is sent, the user's own Claude Code CLI with no tools, and findings previewed before anything is posted. Don't add other AI or external calls, and never run the CLI with a prompt in tests or while developing; tests use the fake adapter and hand-written outputs.
 - **Report only what you verified.** Mark the rest **UNVERIFIED**.
 - **Code style:** match the surrounding code (KDoc on types and public functions, short comments that explain why, Swing-free view models). Keep changes surgical.
 
@@ -41,7 +41,7 @@ scripts/install-plugin.sh [--version vX.Y.Z | --zip FILE | --build]             
 
 - Code map: `wiki/entities/plugin-codebase.md`.
 - UI surface → file: `wiki/concepts/ui-structure.md`.
-- Layers: `azdo/` (REST client and provider) → `review/` (provider-neutral model and `ReviewProvider`) → `toolwindow/`, `timeline/`, `diff/`, `ui/`.
+- Layers: `azdo/` (REST client and provider) → `review/` (provider-neutral model, `ReviewProvider`, reviewed marks) → `toolwindow/`, `timeline/`, `diff/`, `ui/`; `ai/` holds the opt-in AI review (CLI adapter, prompt, consent and preview).
 - Verified platform pitfalls and Azure DevOps REST facts: `docs/engineering-notes.md`. Read it before touching Swing trees, diff inlays, popups, completion or votes.
 - Plan, risks, decisions and specs: `docs/plan.md` (partly outdated: see `wiki/synthesis/plan-vs-implementation.md`), `docs/risks.md`, `docs/open-decisions.md`, `docs/features/F1-F5.md`.
 
