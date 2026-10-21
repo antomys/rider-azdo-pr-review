@@ -1,5 +1,6 @@
 package io.github.antomys.azdoprreview.diff
 
+import com.intellij.diff.tools.fragmented.UnifiedDiffViewer
 import com.intellij.diff.tools.util.DiffDataKeys
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionManager
@@ -155,8 +156,18 @@ class ReviewDiffActions(private val project: Project, private val vm: PullReques
 
         /** The thread after or before the caret in the shown file. */
         private fun target(e: AnActionEvent): ReviewThread? {
-            val line = e.getData(DiffDataKeys.CURRENT_EDITOR)?.caretModel?.logicalPosition?.line?.plus(1) ?: 0
-            return vm.adjacentThread(vm.shownFile.value, line, forward)
+            val editor = e.getData(DiffDataKeys.CURRENT_EDITOR)
+            val unified = (e.getData(DiffDataKeys.DIFF_VIEWER) as? UnifiedDiffViewer)?.let(UnifiedLines::of)
+            val file = vm.shownFile.value
+            if (unified != null && editor != null && file != null) {
+                // The unified editor interleaves both sides' lines, so this file's threads are ordered by where they show.
+                val here = vm.threads.value.filter { !it.isSystem && it.comments.any { c -> !c.isDeleted } && vm.changeOf(it) == file }
+                // Past this file: line 0 is before its threads, Int.MAX_VALUE - 1 after them (and before the next file's).
+                return unified.adjacent(here, editor.caretModel.logicalPosition.line, forward)
+                    ?: vm.adjacentThread(file, if (forward) Int.MAX_VALUE - 1 else 0, forward)
+            }
+            val line = editor?.caretModel?.logicalPosition?.line?.plus(1) ?: 0
+            return vm.adjacentThread(file, line, forward)
         }
     }
 }
