@@ -7,11 +7,26 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.StringReader
 import javax.swing.JLabel
 import javax.swing.plaf.basic.BasicHTML
+import javax.swing.text.MutableAttributeSet
+import javax.swing.text.html.HTML
+import javax.swing.text.html.HTMLEditorKit
+import javax.swing.text.html.parser.ParserDelegator
 
 class MarkdownHtmlTest {
     private fun render(markdown: String) = sanitizeHtml(convertMarkdownToHtml(markdown))
+
+    /** The tags Swing's own HTML parser (the one behind the editor kit) sees in [html]. */
+    private fun parsedTags(html: String): List<String> {
+        val tags = mutableListOf<String>()
+        ParserDelegator().parse(StringReader(html), object : HTMLEditorKit.ParserCallback() {
+            override fun handleStartTag(t: HTML.Tag, a: MutableAttributeSet, pos: Int) { tags += t.toString() }
+            override fun handleSimpleTag(t: HTML.Tag, a: MutableAttributeSet, pos: Int) { tags += t.toString() }
+        }, true)
+        return tags
+    }
 
     @Test
     fun `raw html tags are dropped or shown as text`() {
@@ -52,6 +67,23 @@ class MarkdownHtmlTest {
         assertEquals("<p><a>x</a></p>", render("""<a href="javascript:alert(1)">x</a>""").trim())
         assertEquals("<p><a>x</a></p>", render("""<a href="JAVASCRIPT:alert(1)" onclick="x">x</a>""").trim())
         assertEquals("<p><a href=\"HTTPS://x.example\">x</a></p>", render("""<a href="HTTPS://x.example" target="_blank">x</a>""").trim())
+    }
+
+    @Test
+    fun `unterminated tag at the end of an html block is not parsed as an image`() {
+        for (markdown in listOf("<div>\n<img src=\"http://evil.example/b\"", "<div>\n<img src=\"http://evil.example/b\"\n", "<div>\n<img src=\"http://evil.example/b\"\nmore")) {
+            val html = render(markdown)
+
+            assertFalse(html.contains("<img"), html)
+            assertFalse(parsedTags(html).contains("img"), html)
+        }
+    }
+
+    @Test
+    fun `font keeps a colour and nothing else`() {
+        assertEquals("<p><strong>t</strong> <font color=\"#888888\">#1</font></p>", render("**t** <font color=\"#888888\">#1</font>").trim())
+        assertEquals("<p><font>x</font></p>", render("<font face=\"x\" onclick=\"y\">x</font>").trim())
+        assertEquals("<p><font>x</font></p>", render("<font color=\"url(x)\">x</font>").trim())
     }
 
     @Test
