@@ -1,6 +1,6 @@
 # Azure DevOps PR Review: Rider plugin
 
-A standalone JetBrains Rider plugin (`io.github.antomys.azdoprreview`) for reviewing Azure DevOps pull requests in the IDE. Its UX follows JetBrains' bundled GitLab merge-request plugin. Kotlin, IntelliJ Platform, targets Rider 2026.2 (build 262) only. Current release: 0.1.1; 0.2.0 is in review.
+A standalone JetBrains Rider plugin (`io.github.antomys.azdoprreview`) for reviewing Azure DevOps pull requests in the IDE. Its UX follows JetBrains' bundled GitLab merge-request plugin. Kotlin, IntelliJ Platform, targets Rider 2026.2 (build 262) only. Current release: 0.2.0.
 
 ## The product baseline is fixed
 
