@@ -16,6 +16,9 @@
         the token is kept in the IDE password storage.
     ]]></description>
     <change-notes><![CDATA[
+        <b>0.1.1</b>: comments and descriptions render Markdown only (raw HTML shows as text, images aren't
+        loaded); titles and names from the service are shown as plain text; comment and list updates no longer
+        block the UI; fewer requests while typing an @mention.<br>
         <b>0.1.0</b>: first release.
     ]]></change-notes>
 

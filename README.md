@@ -6,7 +6,7 @@
 
 Browse, read, comment and vote, the way JetBrains' GitLab integration does it, for Azure DevOps.
 
-[![Version](https://img.shields.io/badge/version-0.1.0-2f81f7)](https://github.com/antomys/rider-azdo-pr-review/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.1.1-2f81f7)](https://github.com/antomys/rider-azdo-pr-review/releases/latest)
 [![Rider](https://img.shields.io/badge/Rider-2026.2-000000?logo=rider&logoColor=white)](https://www.jetbrains.com/rider/)
 [![Azure DevOps](https://img.shields.io/badge/Azure%20DevOps-REST%207.1-0078D7?logo=azuredevops&logoColor=white)](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests?view=azure-devops-rest-7.1)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
@@ -52,18 +52,19 @@ Browse, read, comment and vote, the way JetBrains' GitLab integration does it, f
 - JetBrains Rider **2026.2** (tested on macOS);
 - an Azure DevOps Services organization (`dev.azure.com`).
 
-### With the script (macOS, Linux)
-
-With the [GitHub CLI](https://cli.github.com) signed in to an account that can read this repository:
+### One line (macOS, Linux)
 
 ```sh
-scripts/install-plugin.sh                   # latest release
-scripts/install-plugin.sh --version v0.1.0  # a specific release
-scripts/install-plugin.sh --zip FILE        # a zip you downloaded
-scripts/install-plugin.sh --build           # build this checkout and install it
+curl -fsSL https://raw.githubusercontent.com/antomys/rider-azdo-pr-review/master/scripts/install-plugin.sh | sh
 ```
 
-Then restart Rider. Running the script again updates the plugin.
+Then restart Rider. Running it again updates the plugin. Options go after `sh -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antomys/rider-azdo-pr-review/master/scripts/install-plugin.sh | sh -s -- --version v0.1.1
+```
+
+From a checkout, `scripts/install-plugin.sh` also takes `--zip FILE` (a zip you downloaded) or `--build` (build this checkout and install it).
 
 ### By hand (any OS)
 

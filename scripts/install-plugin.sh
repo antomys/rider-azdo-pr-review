@@ -1,8 +1,8 @@
 #!/bin/sh
 # Installs the Azure DevOps PR Review plugin into Rider (macOS and Linux).
 #
-#   scripts/install-plugin.sh                  latest GitHub release (needs `gh`, signed in with access to the repo)
-#   scripts/install-plugin.sh --version v0.1.0 a specific release
+#   scripts/install-plugin.sh                  latest GitHub release (needs curl)
+#   scripts/install-plugin.sh --version v0.1.1 a specific release
 #   scripts/install-plugin.sh --zip FILE       a downloaded zip
 #   scripts/install-plugin.sh --build          build from this checkout first
 #
@@ -78,14 +78,17 @@ if $build; then
     fi
     zip=$(ls -t "$ROOT"/build/distributions/$PLUGIN-*.zip | head -n 1)
 elif [ -z "$zip" ]; then
-    command -v gh >/dev/null || fail "GitHub CLI (gh) not found; install it or pass --zip FILE"
+    command -v curl >/dev/null || fail "curl not found; install it or pass --zip FILE"
     echo "Downloading ${version:-the latest release} of $REPO..."
     if [ -n "$version" ]; then
-        gh release download "$version" --repo "$REPO" --pattern "$PLUGIN-*.zip" --dir "$work"
+        api="https://api.github.com/repos/$REPO/releases/tags/$version"
     else
-        gh release download --repo "$REPO" --pattern "$PLUGIN-*.zip" --dir "$work"
+        api="https://api.github.com/repos/$REPO/releases/latest"
     fi
-    zip=$(ls "$work"/$PLUGIN-*.zip | head -n 1)
+    url=$(curl -fsSL "$api" | sed -n 's/.*"browser_download_url": *"\([^"]*\/'"$PLUGIN"'-[^"\/]*\.zip\)".*/\1/p' | head -n 1)
+    [ -n "$url" ] || fail "no $PLUGIN zip found in ${version:-the latest release} of $REPO"
+    zip="$work/${url##*/}"
+    curl -fsSL -o "$zip" "$url"
 fi
 
 [ -f "$zip" ] || fail "zip not found: $zip"

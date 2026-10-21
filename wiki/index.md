@@ -38,7 +38,7 @@ When this file exceeds ~300 lines or the wiki passes ~150 pages, shard into `wik
 - [[viewed-marks]] — local viewed marks keyed by file version
 - [[mentions]] — mention search and `@<id>` encoding
 - [[build-and-verify]] — build, tests, verifier, sandbox IDE
-- [[release-and-install]] — private release and install script
+- [[release-and-install]] — GitHub release and the curl install one-liner
 
 ## Synthesis
 
