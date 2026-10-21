@@ -39,4 +39,10 @@ interface ReviewProvider {
 
     /** Text to insert into a comment body to mention [user]. */
     fun encodeMention(user: ReviewUser): String
+
+    /** Link to the review in the host's web UI. */
+    fun webUrl(ref: ReviewRef): String
 }
+
+/** The provider and repository the UI works against. */
+data class ReviewTarget(val provider: ReviewProvider, val repo: RepoRef)

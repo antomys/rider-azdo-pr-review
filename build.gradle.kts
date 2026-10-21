@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 plugins {
@@ -15,6 +16,9 @@ kotlin {
         // Rider 2026.2 bundles Kotlin stdlib 2.4.0: don't call newer stdlib APIs.
         apiVersion.set(KotlinVersion.KOTLIN_2_4)
         languageVersion.set(KotlinVersion.KOTLIN_2_4)
+        // Use JVM default methods of platform interfaces instead of generating bridges that the verifier
+        // reports as overrides of deprecated or experimental members.
+        jvmDefault.set(JvmDefaultMode.NO_COMPATIBILITY)
     }
 }
 
