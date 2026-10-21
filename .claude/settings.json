@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew test:*)",
+      "Bash(./gradlew buildPlugin:*)",
+      "Bash(./gradlew verifyPlugin:*)",
+      "Bash(./gradlew compileKotlin:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh release view:*)"
+    ],
+    "deny": [
+      "Bash(git push origin master:*)",
+      "Bash(git push origin HEAD:master:*)"
+    ]
+  }
+}
