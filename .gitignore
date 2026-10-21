@@ -5,3 +5,6 @@ build/
 *.iml
 .kotlin/
 local.properties
+
+# Regenerable wiki search caches
+wiki/.wiki-cache/
